@@ -75,6 +75,22 @@ npm run typecheck  # TypeScript only
 npm run lint       # oxlint
 ```
 
+### Always-on (optional)
+
+To have the tracker permanently available at http://localhost:4173 without starting anything by
+hand, install the systemd user service in [`deploy/`](deploy/README.md):
+
+```bash
+npm run build
+cp deploy/monthly-task-tracker.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now monthly-task-tracker
+loginctl enable-linger   # optional: also start at boot, before login
+```
+
+Adjust `WorkingDirectory` and the absolute Node path in `ExecStart` first — see
+[`deploy/README.md`](deploy/README.md).
+
 ### Demo mode
 
 Append `?demo` to the URL (e.g. http://localhost:5173/?demo) to load example tasks — Gym, Study,

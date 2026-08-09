@@ -1,0 +1,21 @@
+[Unit]
+Description=Monthly Task Tracker (local habit/to-do tracker)
+Documentation=https://github.com/tillo37/monthly-task-tracker
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/islom/Documents/projects/to-do/monthly-task-tracker
+# fnm's PATH entry is a per-shell symlink under /run/user, so point at the real
+# Node install. Update this path if you switch Node versions with fnm.
+ExecStart=/home/islom/.local/share/fnm/node-versions/v22.23.0/installation/bin/node node_modules/vite/bin/vite.js preview --port 4173 --strictPort
+Restart=on-failure
+RestartSec=5
+# vite preview exits non-zero on SIGTERM; don't log a normal stop as a failure.
+SuccessExitStatus=143 SIGTERM
+# The port is part of the origin, and localStorage is per-origin: changing it
+# would hide all existing tracker data.
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target
