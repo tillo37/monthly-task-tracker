@@ -62,7 +62,8 @@ describe('navigation', () => {
 
     await goTo(user, /reports/i);
     expect(location.hash).toBe('#/reports');
-    expect(screen.getByText(/completion and time report/i)).toBeInTheDocument();
+    // Reports open on the current week by default.
+    expect(screen.getByRole('heading', { name: 'Weekly report' })).toBeInTheDocument();
 
     await goTo(user, /^tasks$/i);
     expect(location.hash).toBe('#/tasks');
@@ -273,7 +274,7 @@ describe('tracked time in the tracker and reports', () => {
     location.hash = `#/reports`;
     render(<App />);
     expect(screen.getByRole('row', { name: /Gym/ })).toHaveTextContent('1h 15m');
-    expect(screen.getByText(new RegExp(`Completion and time report for`))).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Weekly report' })).toBeInTheDocument();
     expect(thisMonth).toBe(currentMonthKey());
   });
 });

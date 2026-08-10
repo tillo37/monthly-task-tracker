@@ -127,10 +127,20 @@ export function useTracker(storage: MonthlyStorage = monthlyStorage) {
     [mutateMonth],
   );
 
-  const removeOrphanSessions = useCallback(
-    () => mutateMonth((current) => pruneOrphanSessions(current)),
-    [mutateMonth],
-  );
+  /**
+   * Prunes orphaned sessions in every month, not just the visible one: reports
+   * can cover a range that spans months, so a month-scoped cleanup would leave
+   * the warning on screen after the user acted on it.
+   */
+  const removeOrphanSessions = useCallback(() => {
+    setData((current) => {
+      const months: TrackerData['months'] = {};
+      for (const [key, month] of Object.entries(current.months)) {
+        months[key] = pruneOrphanSessions(month);
+      }
+      return { ...current, months };
+    });
+  }, []);
 
   /** Wholesale replacement used by import. */
   const replaceData = useCallback((next: TrackerData) => setData(next), []);

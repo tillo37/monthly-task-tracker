@@ -1,10 +1,13 @@
-import type { MonthTimeStats } from '../../types';
 import { iconFor } from '../../lib/appearance';
+import type { ReportTaskRow } from '../../lib/reportEngine';
 import { formatDuration } from '../../lib/time';
 
 interface TimeByTaskChartProps {
-  ranked: MonthTimeStats['ranked'];
+  /** Ranked by time spent, descending. */
+  tasks: ReportTaskRow[];
   totalSeconds: number;
+  /** Shown under the heading, e.g. `Aug 10 → Aug 16, 2026`. */
+  subtitle: string;
 }
 
 /**
@@ -14,37 +17,44 @@ interface TimeByTaskChartProps {
  * and value never depend on the accent colour alone — the same numbers are also
  * in the report table below.
  */
-export function TimeByTaskChart({ ranked, totalSeconds }: TimeByTaskChartProps) {
-  const max = ranked.reduce((highest, entry) => Math.max(highest, entry.time.totalSeconds), 0);
+export function TimeByTaskChart({ tasks, totalSeconds, subtitle }: TimeByTaskChartProps) {
+  const max = tasks.reduce((highest, row) => Math.max(highest, row.totalSeconds), 0);
 
   return (
     <section className="card p-5" aria-label="Time spent per task">
-      <h2 className="text-sm font-semibold">Time per task</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+        <h2 className="text-sm font-semibold">Time per task</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
+      </div>
       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
         {totalSeconds > 0
-          ? `${formatDuration(totalSeconds)} tracked across ${ranked.length} task${
-              ranked.length === 1 ? '' : 's'
+          ? `${formatDuration(totalSeconds)} tracked across ${tasks.length} task${
+              tasks.length === 1 ? '' : 's'
             }.`
-          : 'No time tracked yet this month.'}
+          : 'No time tracked in this period.'}
       </p>
 
       <ul className="mt-4 space-y-3">
-        {ranked.map(({ task, time }) => {
-          const width = max > 0 ? (time.totalSeconds / max) * 100 : 0;
-          const share = totalSeconds > 0 ? (time.totalSeconds / totalSeconds) * 100 : 0;
-          const Icon = iconFor(task.icon);
+        {tasks.map((row) => {
+          const width = max > 0 ? (row.totalSeconds / max) * 100 : 0;
+          const share = totalSeconds > 0 ? (row.totalSeconds / totalSeconds) * 100 : 0;
+          const Icon = iconFor(row.icon);
 
           return (
-            <li key={task.id}>
+            <li key={row.key}>
               <div className="flex items-baseline justify-between gap-3 text-sm">
                 <span className="flex min-w-0 items-center gap-1.5">
-                  <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: task.color }} aria-hidden="true" />
-                  <span className="truncate font-medium" title={task.name}>
-                    {task.name}
+                  <Icon
+                    className="h-3.5 w-3.5 shrink-0"
+                    style={{ color: row.color }}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate font-medium" title={row.name}>
+                    {row.name}
                   </span>
                 </span>
                 <span className="shrink-0 tabular-nums">
-                  <span className="font-semibold">{formatDuration(time.totalSeconds)}</span>
+                  <span className="font-semibold">{formatDuration(row.totalSeconds)}</span>
                   {share > 0 && (
                     <span className="text-slate-500 dark:text-slate-400">
                       {' '}
@@ -60,7 +70,7 @@ export function TimeByTaskChart({ ranked, totalSeconds }: TimeByTaskChartProps) 
               >
                 <div
                   className="h-full rounded-md transition-[width] duration-300 ease-out"
-                  style={{ width: `${width}%`, backgroundColor: task.color }}
+                  style={{ width: `${width}%`, backgroundColor: row.color }}
                 />
               </div>
             </li>

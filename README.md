@@ -15,7 +15,7 @@ The app has three sections, reachable from the header and linkable by URL hash:
 | ---------------- | ----------------- | --------------------------------------------------- |
 | **Tasks**        | `#/tasks`         | the monthly tracker grid (the original app)          |
 | **Time Tracker** | `#/time`          | stopwatch and manual entry, plus `#/time/sessions`   |
-| **Reports**      | `#/reports`       | time and completion analytics for the month          |
+| **Reports**      | `#/reports`       | time and completion analytics for any period          |
 
 ## Screenshots
 
@@ -49,8 +49,18 @@ _Run the app with `npm run dev` and drop screenshots into `docs/` to fill this s
   session.
 - **Session history** — every session grouped by day with per-day totals, deletable individually or
   a whole month at a time.
-- **Time reports** — time per task, daily activity, time per session, time per completion and the
-  busiest day, alongside the completion figures.
+- **Time reports for any period** — Today, Yesterday, This/Last Week, This/Last Month, This/Last
+  Year or a custom range, with previous/next stepping. Weeks are real calendar weeks running
+  **Monday → Sunday**, never a rolling seven days, and a weekly report always shows all seven days
+  including the empty ones.
+- **One report engine** — every preset resolves to a start and end day and goes through the same
+  pipeline; the activity chart switches from days to weeks to months as the range grows.
+- **Honest weekly completion** — `Done in period` counts only the completions inside the selected
+  range, while the target stays the *monthly* target it always was; the columns are labelled
+  `Monthly target` / `Done in period` / `Period completion` so the two can never be confused.
+- **Sessions split at midnight** — a session running 23:30 → 01:00 counts 30 minutes on the first
+  day and an hour on the next, so a week boundary attributes each portion to the right day.
+- **Report navigation is independent** — changing the report period never moves the tracker's month.
 - **Statistics** — completed, target, task count, overall percentage, best and lowest performing
   task.
 - **Today indicator** — highlighted only when you are viewing the current month; past, present and
@@ -129,8 +139,8 @@ src/
   hooks/            useTracker (all state + mutations), useActiveTimer,
                     useRoute, useTheme
   lib/              domain logic: dates, calculations, task operations, time
-                    sessions, duration formatting, validation, backup,
-                    appearance, demo fixture
+                    sessions, duration formatting, report ranges and the report
+                    engine, validation, backup, appearance, demo fixture
   storage/          monthlyStorage and timerStorage — the only modules that
                     touch localStorage
   types/            shared TypeScript types
@@ -200,6 +210,24 @@ A session always belongs to exactly one task and one month. Deleting a task dele
 sessions whose task has gone missing (from a hand-edited file) are reported separately in Reports and
 never counted in the totals.
 
+### Report periods
+
+Reports work from a pair of inclusive day keys; the presets only generate that pair. `lib/reportRange.ts`
+owns every boundary (`getStartOfWeek`, `getEndOfWeek`, `getThisWeekRange`, `getLastWeekRange`,
+`getReportRange`, `shiftPeriod`) and `lib/reportEngine.ts` owns the aggregation
+(`splitSessionByDay`, `getSessionsInRange`, `getTotalDuration`, `getTimeByTask`, `getTimeByDay`,
+`getTimeByWeek`, `getTimeByMonth`, `getCompletionInRange`, `buildReport`). No component does date
+arithmetic.
+
+```text
+average / day  = total tracked time / every calendar day in the range
+                 (a week always divides by 7, empty days included)
+week           = Monday → Sunday containing the anchor day
+```
+
+Because a range can span months, and tasks are defined per month, a report merges tasks by name and
+sums the monthly targets of the months that actually define them.
+
 Because the data lives in the browser profile, clearing site data for `localhost` removes it. Export
 a backup before doing that.
 
@@ -248,8 +276,10 @@ The suite covers percentage maths (including exceeding the target and the weight
 calendar handling (28/29/30/31-day months, leap years, month arithmetic), task CRUD and toggling,
 copying a previous month, storage round-trips and recovery from corrupt data, import validation,
 duration parsing and formatting, session CRUD, time statistics (including the worked
-`14h 35m` / `21h 10m` example), timer start/stop/discard with a fake clock, hash routing, and
-end-to-end passes over the UI (create, mark, unmark, edit, delete, reset, navigate months, persist
+`14h 35m` / `21h 10m` example), timer start/stop/discard with a fake clock, hash routing, report
+periods (Monday-first weeks from every weekday, month and year boundaries, stepping, labels), the
+report engine (range filtering, midnight splitting, zero-filled days, seven-day averages, busiest-day
+ties, per-period completion), and end-to-end passes over the UI (create, mark, unmark, edit, delete, reset, navigate months, persist
 across a reload; and navigate sections, run the timer, add and delete sessions, read the report).
 
 ## GitHub

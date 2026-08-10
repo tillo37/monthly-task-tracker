@@ -16,7 +16,11 @@ export function StatTile({ label, value, hint, icon: Icon, tone = 'default' }: S
         : '';
 
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40">
+    <div
+      role="group"
+      aria-label={label}
+      className="rounded-xl border border-slate-200/80 bg-slate-50/60 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40"
+    >
       <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
         <Icon className="h-3.5 w-3.5" />
         {label}

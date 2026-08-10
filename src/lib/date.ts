@@ -178,6 +178,67 @@ export function shortDateLabel(date: DateKey): string {
   return `${WEEKDAY_NAMES[weekdayOf(date)]} ${day} ${MONTH_NAMES[month - 1].slice(0, 3)}`;
 }
 
+/** Local midnight at the start of a day, as a `Date`. */
+export function startOfDay(date: DateKey): Date {
+  const { year, month } = parseMonthKey(monthKeyOfDate(date));
+  return new Date(year, month - 1, Number(date.slice(8, 10)), 0, 0, 0, 0);
+}
+
+/**
+ * Shifts a day key by whole days. Goes through a local `Date` so month, year and
+ * daylight-saving boundaries are handled by the calendar rather than by hand.
+ */
+export function addDays(date: DateKey, delta: number): DateKey {
+  const value = startOfDay(date);
+  value.setDate(value.getDate() + delta);
+  return todayKey(value);
+}
+
+/** Whole days from `from` to `to`; negative when `to` is earlier. */
+export function daysBetween(from: DateKey, to: DateKey): number {
+  // Compare noon to noon so a daylight-saving shift cannot round the wrong way.
+  const a = startOfDay(from).getTime() + 12 * 3600_000;
+  const b = startOfDay(to).getTime() + 12 * 3600_000;
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** Every day key from `start` to `end`, inclusive. Empty when inverted. */
+export function datesBetween(start: DateKey, end: DateKey): DateKey[] {
+  const total = daysBetween(start, end);
+  if (total < 0) return [];
+  return Array.from({ length: total + 1 }, (_, index) => addDays(start, index));
+}
+
+/** Every month key touched by the day range, inclusive and in order. */
+export function monthKeysBetween(start: DateKey, end: DateKey): MonthKey[] {
+  if (start > end) return [];
+  const last = monthKeyOfDate(end);
+  const keys: MonthKey[] = [];
+  let current = monthKeyOfDate(start);
+  while (current <= last) {
+    keys.push(current);
+    current = addMonths(current, 1);
+  }
+  return keys;
+}
+
+/** `2026-08-09` -> `Aug 9, 2026`. */
+export function compactDateLabel(date: DateKey): string {
+  const month = Number(date.slice(5, 7));
+  return `${MONTH_NAMES[month - 1].slice(0, 3)} ${Number(date.slice(8, 10))}, ${date.slice(0, 4)}`;
+}
+
+/** `2026-08-09` -> `Aug 9`, for axis ticks where the year is already implied. */
+export function compactDayLabel(date: DateKey): string {
+  const month = Number(date.slice(5, 7));
+  return `${MONTH_NAMES[month - 1].slice(0, 3)} ${Number(date.slice(8, 10))}`;
+}
+
+/** `2026-08-09` -> `Mon`. */
+export function weekdayShortName(date: DateKey): string {
+  return WEEKDAY_NAMES[weekdayOf(date)];
+}
+
 export type DayPosition = 'past' | 'today' | 'future';
 
 export function dayPosition(date: DateKey, today: DateKey = todayKey()): DayPosition {

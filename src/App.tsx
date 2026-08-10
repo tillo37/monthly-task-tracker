@@ -20,6 +20,7 @@ import { backupFilename, buildBackup, downloadJson } from './lib/backup';
 import { parseTrackerData } from './lib/validation';
 import { createDemoData } from './lib/demoData';
 import { createSession, type SessionInput } from './lib/sessions';
+import { periodForPreset, type ReportPeriod } from './lib/reportRange';
 import { describeDuration, formatClock, formatDuration } from './lib/time';
 import {
   createMemoryStorage,
@@ -61,6 +62,11 @@ export default function App() {
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const [status, setStatus] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
+  // The report period is deliberately separate from the tracker's month, so
+  // browsing reports never moves the task grid.
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>(() =>
+    periodForPreset('thisWeek'),
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { month, monthData, stats, timeStats } = tracker;
@@ -388,14 +394,9 @@ export default function App() {
 
         {route.section === 'reports' && (
           <ReportsView
-            month={month}
-            monthData={monthData}
-            stats={stats}
-            timeStats={timeStats}
-            onPreviousMonth={tracker.goToPreviousMonth}
-            onNextMonth={tracker.goToNextMonth}
-            onCurrentMonth={tracker.goToCurrentMonth}
-            onSelectMonth={tracker.goToMonth}
+            data={tracker.data}
+            period={reportPeriod}
+            onPeriodChange={setReportPeriod}
             onRemoveOrphans={removeOrphans}
           />
         )}
