@@ -4,8 +4,18 @@ A local-first monthly habit and to-do completion tracker, inspired by the spread
 every task has a monthly target and each day gets ticked off.
 
 Set a target for each task ("Gym, 20 times this month"), tick the days you actually did it, and the
-per-task and weighted overall percentages update instantly. Everything lives in your browser — no
-account, no server, no network.
+per-task and weighted overall percentages update instantly. A built-in **time tracker** then records
+how long you actually spend on those same tasks, so a month reads as
+`Gym · 12 / 20 · 60% · 14h 35m`. Everything lives in your browser — no account, no server, no
+network.
+
+The app has three sections, reachable from the header and linkable by URL hash:
+
+| Section          | Hash              | What it does                                        |
+| ---------------- | ----------------- | --------------------------------------------------- |
+| **Tasks**        | `#/tasks`         | the monthly tracker grid (the original app)          |
+| **Time Tracker** | `#/time`          | stopwatch and manual entry, plus `#/time/sessions`   |
+| **Reports**      | `#/reports`       | time and completion analytics for the month          |
 
 ## Screenshots
 
@@ -31,6 +41,16 @@ _Run the app with `npm run dev` and drop screenshots into `docs/` to fill this s
 - **Task management** — create, edit and delete with colour and icon, with a confirmation dialog
   before anything destructive.
 - **Reset month** — clear a month's completions while keeping the task definitions.
+- **Time tracking on the same tasks** — a single stopwatch, one task at a time, recording real
+  sessions against the tasks the tracker already has. No separate task list.
+- **Survives a reload** — a running timer is restored with the correct elapsed time, computed from
+  when it started rather than accumulated, so a backgrounded tab loses nothing.
+- **Manual entries** — add time the timer missed (`45`, `1h 30m` or `1:30`), capped at 24 hours per
+  session.
+- **Session history** — every session grouped by day with per-day totals, deletable individually or
+  a whole month at a time.
+- **Time reports** — time per task, daily activity, time per session, time per completion and the
+  busiest day, alongside the completion figures.
 - **Statistics** — completed, target, task count, overall percentage, best and lowest performing
   task.
 - **Today indicator** — highlighted only when you are viewing the current month; past, present and
@@ -101,12 +121,18 @@ saved data, and the same fixture is used by the tests.
 
 ```text
 src/
+  views/            one component per section: Tasks, Time Tracker, Reports
   components/       UI components (tracker table, dialogs, summary, controls)
-    ui/             generic building blocks (modal, confirm, progress ring/bar)
-  hooks/            useTracker (all state + mutations), useTheme
-  lib/              domain logic: dates, calculations, task operations,
-                    validation, backup, appearance, demo fixture
-  storage/          monthlyStorage — the only module that touches localStorage
+    time/           timer panel, session list, manual entry, time charts
+    ui/             generic building blocks (modal, confirm, progress ring/bar,
+                    stat tile)
+  hooks/            useTracker (all state + mutations), useActiveTimer,
+                    useRoute, useTheme
+  lib/              domain logic: dates, calculations, task operations, time
+                    sessions, duration formatting, validation, backup,
+                    appearance, demo fixture
+  storage/          monthlyStorage and timerStorage — the only modules that
+                    touch localStorage
   types/            shared TypeScript types
   test/             test setup
 ```
@@ -117,13 +143,14 @@ storage, and the domain functions are pure and independently tested.
 ## How data is stored
 
 All data is kept in your browser's `localStorage` under the key `monthly-task-tracker:v1` (the theme
-preference lives under `monthly-task-tracker:theme`). Nothing is uploaded anywhere.
+preference lives under `monthly-task-tracker:theme`, and a running timer under
+`monthly-task-tracker:timer:v1`). Nothing is uploaded anywhere.
 
 The document is keyed by month:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "months": {
     "2026-08": {
       "tasks": [
@@ -136,14 +163,42 @@ The document is keyed by month:
           "completedDates": ["2026-08-01", "2026-08-03"],
           "createdAt": "2026-08-01T09:12:00.000Z"
         }
+      ],
+      "sessions": [
+        {
+          "id": "9ab1…",
+          "taskId": "5f3c…",
+          "startTime": "2026-08-03T06:10:00.000Z",
+          "endTime": "2026-08-03T07:25:00.000Z",
+          "durationSeconds": 4500,
+          "createdAt": "2026-08-03T07:25:00.000Z"
+        }
       ]
     }
   }
 }
 ```
 
-Dates are plain `YYYY-MM-DD` strings, so nothing shifts when your timezone does. Writes happen
+Version 1 documents — anything exported before the time tracker existed — load unchanged: a missing
+`sessions` list simply reads as an empty one.
+
+Completion dates are plain `YYYY-MM-DD` strings, so nothing shifts when your timezone does. Sessions
+are ISO instants, because a stopwatch measures real elapsed time; they are reported on the local day
+they started, and stored in the month that day belongs to. `durationSeconds` is always re-derived
+from the two instants on load, so a hand-edited value cannot inflate a total. Writes happen
 automatically on every change — there is nothing to save manually.
+
+### Time figures
+
+```text
+task time       = sum of durationSeconds of that task's sessions this month
+per session     = task time / number of sessions
+per completion  = task time / completions ticked in the grid
+```
+
+A session always belongs to exactly one task and one month. Deleting a task deletes its sessions;
+sessions whose task has gone missing (from a hand-edited file) are reported separately in Reports and
+never counted in the totals.
 
 Because the data lives in the browser profile, clearing site data for `localhost` removes it. Export
 a backup before doing that.
@@ -162,20 +217,26 @@ at 5 completions the result is `15 / 25 = 60%` — not the 75% a naive average w
 
 From the **Data** menu in the header:
 
-- **Export \<month\>** — downloads just the month you are viewing.
+- **Export \<month\>** — downloads just the month you are viewing, tasks and sessions together.
 - **Export all data** — downloads every month.
 - **Import data…** — pick a previously exported `.json` file.
+- **Reset this month's progress** — clears completions, keeps tasks and tracked time.
+- **Clear this month's tracked time** — deletes the month's sessions, keeps tasks and completions.
 
 Import is validated before anything is replaced: malformed months, nameless tasks, non-positive
 targets and dates that do not belong to their month are dropped, unknown icons and colours fall back
-to defaults, and you get a preview of what the file holds versus what you have now. Importing
+to defaults, sessions with an unreadable interval or a task that is not in their month are dropped,
+sessions longer than 24 hours are clamped, and you get a preview of what the file holds versus what
+you have now. Importing
 replaces all existing data, so export a backup first — the confirmation dialog says so explicitly.
 
 ## Accessibility
 
 Semantic table markup with row/column headers, labelled buttons, `aria-pressed` day toggles, arrow
 key navigation across the grid, focus-trapped dialogs with Escape to close, a skip link, a visible
-focus ring, and reduced-motion support.
+focus ring, and reduced-motion support. The charts never rely on colour alone: every bar is directly
+labelled and the same numbers are available as a table, and the daily chart carries a screen-reader
+table of its values.
 
 ## Testing
 
@@ -185,9 +246,11 @@ npm run test
 
 The suite covers percentage maths (including exceeding the target and the weighted overall figure),
 calendar handling (28/29/30/31-day months, leap years, month arithmetic), task CRUD and toggling,
-copying a previous month, storage round-trips and recovery from corrupt data, import validation, and
-an end-to-end pass over the UI (create, mark, unmark, edit, delete, reset, navigate months, persist
-across a reload).
+copying a previous month, storage round-trips and recovery from corrupt data, import validation,
+duration parsing and formatting, session CRUD, time statistics (including the worked
+`14h 35m` / `21h 10m` example), timer start/stop/discard with a fake clock, hash routing, and
+end-to-end passes over the UI (create, mark, unmark, edit, delete, reset, navigate months, persist
+across a reload; and navigate sections, run the timer, add and delete sessions, read the report).
 
 ## GitHub
 

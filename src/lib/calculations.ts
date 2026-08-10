@@ -1,5 +1,12 @@
-import type { MonthData, MonthStats, Task, TaskStats } from '../types';
-import { monthKeyOfDate, type MonthKey } from './date';
+import type {
+  MonthData,
+  MonthStats,
+  MonthTimeStats,
+  Task,
+  TaskStats,
+  TaskTimeStats,
+} from '../types';
+import { dateKeyOfInstant, monthKeyOfDate, type MonthKey } from './date';
 
 /**
  * Completions counted for a task. When a month key is supplied, dates outside
@@ -68,6 +75,87 @@ export function monthStats(data: MonthData, month?: MonthKey): MonthStats {
     best,
     worst,
   };
+}
+
+const emptyTaskTime = (taskId: string): TaskTimeStats => ({
+  taskId,
+  totalSeconds: 0,
+  sessionCount: 0,
+  lastSessionAt: null,
+  averageSeconds: 0,
+  secondsPerCompletion: 0,
+});
+
+/**
+ * Time totals for one month, derived from its sessions.
+ *
+ * Every task gets an entry even with no sessions, so the reports table can list
+ * the whole month without the caller filling in blanks. Sessions pointing at a
+ * task that has since been deleted are counted only as orphans — they never
+ * inflate the month total.
+ */
+export function monthTimeStats(data: MonthData, month?: MonthKey): MonthTimeStats {
+  const byTask: Record<string, TaskTimeStats> = {};
+  for (const task of data.tasks) byTask[task.id] = emptyTaskTime(task.id);
+
+  const byDay: Record<string, number> = {};
+  let totalSeconds = 0;
+  let sessionCount = 0;
+  let orphanSessionCount = 0;
+
+  for (const session of data.sessions) {
+    const entry = byTask[session.taskId];
+    if (!entry) {
+      orphanSessionCount += 1;
+      continue;
+    }
+
+    const seconds = Math.max(0, Math.round(session.durationSeconds));
+    entry.totalSeconds += seconds;
+    entry.sessionCount += 1;
+    if (!entry.lastSessionAt || session.startTime > entry.lastSessionAt) {
+      entry.lastSessionAt = session.startTime;
+    }
+
+    totalSeconds += seconds;
+    sessionCount += 1;
+
+    const day = dateKeyOfInstant(session.startTime);
+    if (day) byDay[day] = (byDay[day] ?? 0) + seconds;
+  }
+
+  for (const task of data.tasks) {
+    const entry = byTask[task.id];
+    entry.averageSeconds =
+      entry.sessionCount > 0 ? Math.round(entry.totalSeconds / entry.sessionCount) : 0;
+    const completed = countCompleted(task, month);
+    entry.secondsPerCompletion = completed > 0 ? Math.round(entry.totalSeconds / completed) : 0;
+  }
+
+  const ranked = data.tasks
+    .map((task) => ({ task, time: byTask[task.id] }))
+    .sort((a, b) => b.time.totalSeconds - a.time.totalSeconds);
+
+  let busiestDay: MonthTimeStats['busiestDay'] = null;
+  for (const [date, seconds] of Object.entries(byDay)) {
+    if (!busiestDay || seconds > busiestDay.seconds) busiestDay = { date, seconds };
+  }
+
+  return {
+    totalSeconds,
+    sessionCount,
+    averageSeconds: sessionCount > 0 ? Math.round(totalSeconds / sessionCount) : 0,
+    byTask,
+    ranked,
+    byDay,
+    busiestDay,
+    orphanSessionCount,
+  };
+}
+
+/** Time recorded for one task, whether or not the month has any sessions. */
+export function taskTimeStats(data: MonthData, taskId: string, month?: MonthKey): TaskTimeStats {
+  return monthTimeStats(data, month).byTask[taskId] ?? emptyTaskTime(taskId);
 }
 
 /**

@@ -1,7 +1,8 @@
 import { useCallback, type KeyboardEvent } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
-import type { Task } from '../types';
+import type { MonthTimeStats, Task } from '../types';
 import { formatPercentage, taskStats } from '../lib/calculations';
+import { formatDurationOrDash } from '../lib/time';
 import { iconFor } from '../lib/appearance';
 import {
   dayPosition,
@@ -19,6 +20,8 @@ import { ProgressBar } from './ui/ProgressBar';
 interface TrackerTableProps {
   month: MonthKey;
   tasks: Task[];
+  /** Time totals for the same month, shown alongside completion progress. */
+  timeStats: MonthTimeStats;
   onToggle: (taskId: string, date: DateKey) => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
@@ -27,12 +30,21 @@ interface TrackerTableProps {
 /** Widths shared by the sticky columns and their header cells. */
 const TASK_COL = 'w-[170px] min-w-[170px] sm:w-[210px] sm:min-w-[210px]';
 const PROGRESS_COL = 'w-[124px] min-w-[124px]';
+const TIME_COL = 'w-[86px] min-w-[86px]';
 const STICKY_PROGRESS_OFFSET = 'sm:left-[170px] lg:left-[210px]';
+const STICKY_TIME_OFFSET = 'sm:left-[294px] lg:left-[334px]';
 
 const stickyBg = 'bg-white dark:bg-slate-900';
 const headerBg = 'bg-slate-50 dark:bg-slate-900/95';
 
-export function TrackerTable({ month, tasks, onToggle, onEdit, onDelete }: TrackerTableProps) {
+export function TrackerTable({
+  month,
+  tasks,
+  timeStats,
+  onToggle,
+  onEdit,
+  onDelete,
+}: TrackerTableProps) {
   const days = daysOfMonth(month);
   const today = todayKey();
 
@@ -86,6 +98,12 @@ export function TrackerTable({ month, tasks, onToggle, onEdit, onDelete }: Track
                 className={`sm:sticky ${STICKY_PROGRESS_OFFSET} z-20 ${PROGRESS_COL} ${headerBg} border-b border-slate-200 px-3 py-2 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase dark:border-slate-800 dark:text-slate-400`}
               >
                 Progress
+              </th>
+              <th
+                scope="col"
+                className={`sm:sticky ${STICKY_TIME_OFFSET} z-20 ${TIME_COL} ${headerBg} border-b border-slate-200 px-3 py-2 text-right text-xs font-semibold tracking-wide text-slate-500 uppercase dark:border-slate-800 dark:text-slate-400`}
+              >
+                Time
               </th>
 
               {days.map((date, index) => {
@@ -153,7 +171,7 @@ export function TrackerTable({ month, tasks, onToggle, onEdit, onDelete }: Track
                   </th>
 
                   <td
-                    className={`sm:sticky ${STICKY_PROGRESS_OFFSET} z-10 ${PROGRESS_COL} ${stickyBg} border-b border-r border-slate-100 px-3 py-2 dark:border-slate-800/70`}
+                    className={`sm:sticky ${STICKY_PROGRESS_OFFSET} z-10 ${PROGRESS_COL} ${stickyBg} border-b border-slate-100 px-3 py-2 dark:border-slate-800/70`}
                   >
                     <div className="flex items-baseline justify-between gap-2 text-xs tabular-nums">
                       <span className="font-medium">
@@ -177,6 +195,20 @@ export function TrackerTable({ month, tasks, onToggle, onEdit, onDelete }: Track
                         exceeded={stats.exceeded}
                       />
                     </div>
+                  </td>
+
+                  <td
+                    className={`sm:sticky ${STICKY_TIME_OFFSET} z-10 ${TIME_COL} ${stickyBg} border-b border-r border-slate-100 px-3 py-2 text-right text-xs tabular-nums dark:border-slate-800/70`}
+                  >
+                    <span
+                      className={
+                        (timeStats.byTask[task.id]?.totalSeconds ?? 0) > 0
+                          ? 'font-medium'
+                          : 'text-slate-400 dark:text-slate-600'
+                      }
+                    >
+                      {formatDurationOrDash(timeStats.byTask[task.id]?.totalSeconds ?? 0)}
+                    </span>
                   </td>
 
                   {days.map((date, columnIndex) => (

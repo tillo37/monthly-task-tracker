@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { MonthData, TrackerData } from '../types';
+import type { MonthData, TimeSession, TrackerData } from '../types';
 import { addMonths, currentMonthKey, type DateKey, type MonthKey } from '../lib/date';
-import { monthStats } from '../lib/calculations';
+import { monthStats, monthTimeStats } from '../lib/calculations';
+import {
+  addSession as addSessionTo,
+  clearSessions,
+  deleteSession as deleteSessionFrom,
+  pruneOrphanSessions,
+} from '../lib/sessions';
 import {
   addTask as addTaskTo,
   copyTaskDefinitions,
@@ -31,6 +37,7 @@ export function useTracker(storage: MonthlyStorage = monthlyStorage) {
 
   const monthData = data.months[month] ?? EMPTY_MONTH;
   const stats = useMemo(() => monthStats(monthData, month), [monthData, month]);
+  const timeStats = useMemo(() => monthTimeStats(monthData, month), [monthData, month]);
 
   const previousMonth = addMonths(month, -1);
   const previousMonthTaskCount = data.months[previousMonth]?.tasks.length ?? 0;
@@ -44,6 +51,17 @@ export function useTracker(storage: MonthlyStorage = monthlyStorage) {
       });
     },
     [month],
+  );
+
+  /** Same as `mutateMonth`, for a month other than the one being viewed. */
+  const mutateMonthKey = useCallback(
+    (target: MonthKey, transform: (current: MonthData) => MonthData) => {
+      setData((current) => {
+        const existing = current.months[target] ?? emptyMonth();
+        return { ...current, months: { ...current.months, [target]: transform(existing) } };
+      });
+    },
+    [],
   );
 
   const addTask = useCallback(
@@ -88,6 +106,32 @@ export function useTracker(storage: MonthlyStorage = monthlyStorage) {
     });
   }, [month]);
 
+  /**
+   * Adds a recorded session. The month is explicit because a timer stopped just
+   * after midnight belongs to the month it started in, not the one on screen.
+   */
+  const addSession = useCallback(
+    (session: TimeSession, target: MonthKey = month) =>
+      mutateMonthKey(target, (current) => addSessionTo(current, session)),
+    [month, mutateMonthKey],
+  );
+
+  const deleteSession = useCallback(
+    (id: string, target: MonthKey = month) =>
+      mutateMonthKey(target, (current) => deleteSessionFrom(current, id)),
+    [month, mutateMonthKey],
+  );
+
+  const clearMonthSessions = useCallback(
+    () => mutateMonth((current) => clearSessions(current)),
+    [mutateMonth],
+  );
+
+  const removeOrphanSessions = useCallback(
+    () => mutateMonth((current) => pruneOrphanSessions(current)),
+    [mutateMonth],
+  );
+
   /** Wholesale replacement used by import. */
   const replaceData = useCallback((next: TrackerData) => setData(next), []);
 
@@ -101,6 +145,7 @@ export function useTracker(storage: MonthlyStorage = monthlyStorage) {
     month,
     monthData,
     stats,
+    timeStats,
     previousMonthTaskCount,
     addTask,
     updateTask,
@@ -108,6 +153,10 @@ export function useTracker(storage: MonthlyStorage = monthlyStorage) {
     toggleCompletion,
     resetMonth,
     copyPreviousMonth,
+    addSession,
+    deleteSession,
+    clearMonthSessions,
+    removeOrphanSessions,
     replaceData,
     goToMonth,
     goToPreviousMonth,

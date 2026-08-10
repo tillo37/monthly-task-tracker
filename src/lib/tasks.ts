@@ -1,6 +1,6 @@
 import type { MonthData, Task } from '../types';
 import { DEFAULT_COLOR, DEFAULT_ICON } from './appearance';
-import { monthKeyOfDate, type DateKey, type MonthKey } from './date';
+import { monthKeyOfDate, monthKeyOfInstant, type DateKey, type MonthKey } from './date';
 import { createId } from './id';
 
 export const MAX_TARGET = 999;
@@ -13,7 +13,7 @@ export interface TaskInput {
   icon?: string;
 }
 
-export const emptyMonth = (): MonthData => ({ tasks: [] });
+export const emptyMonth = (): MonthData => ({ tasks: [], sessions: [] });
 
 /** Validation shared by the task form and the import validator. */
 export function validateTaskInput(input: {
@@ -78,8 +78,13 @@ export function updateTask(data: MonthData, id: string, patch: Partial<TaskInput
   };
 }
 
+/** Removes a task along with the time sessions that pointed at it. */
 export function deleteTask(data: MonthData, id: string): MonthData {
-  return { ...data, tasks: data.tasks.filter((task) => task.id !== id) };
+  return {
+    ...data,
+    tasks: data.tasks.filter((task) => task.id !== id),
+    sessions: data.sessions.filter((session) => session.taskId !== id),
+  };
 }
 
 /** Flips one day of one task, keeping `completedDates` unique and sorted. */
@@ -107,6 +112,7 @@ export function resetProgress(data: MonthData): MonthData {
  */
 export function copyTaskDefinitions(source: MonthData, now: Date = new Date()): MonthData {
   return {
+    sessions: [],
     tasks: source.tasks.map((task) => ({
       ...task,
       id: createId(),
@@ -116,7 +122,10 @@ export function copyTaskDefinitions(source: MonthData, now: Date = new Date()): 
   };
 }
 
-/** Drops any completion dates that fall outside the month holding the task. */
+/**
+ * Drops anything that does not belong to the given month: completion dates
+ * outside it, and time sessions that started outside it.
+ */
 export function pruneToMonth(data: MonthData, month: MonthKey): MonthData {
   return {
     ...data,
@@ -124,5 +133,6 @@ export function pruneToMonth(data: MonthData, month: MonthKey): MonthData {
       ...task,
       completedDates: task.completedDates.filter((date) => monthKeyOfDate(date) === month),
     })),
+    sessions: data.sessions.filter((session) => monthKeyOfInstant(session.startTime) === month),
   };
 }

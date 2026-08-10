@@ -190,7 +190,7 @@ describe('useTracker', () => {
     act(() =>
       result.current.replaceData({
         version: 1,
-        months: { [AUGUST]: { tasks: [] }, [SEPTEMBER]: { tasks: [] } },
+        months: { [AUGUST]: { tasks: [], sessions: [] }, [SEPTEMBER]: { tasks: [], sessions: [] } },
       }),
     );
 

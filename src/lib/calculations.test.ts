@@ -77,6 +77,7 @@ describe('monthStats', () => {
         task({ name: 'A', target: 20, completedDates: days('2026-08', 10) }),
         task({ name: 'B', target: 5, completedDates: days('2026-08', 5) }),
       ],
+      sessions: [],
     };
 
     const stats = monthStats(data, '2026-08');
@@ -94,6 +95,7 @@ describe('monthStats', () => {
         task({ name: 'B', target: 10, completedDates: days('2026-08', 8) }),
         task({ name: 'C', target: 5, completedDates: days('2026-08', 5) }),
       ],
+      sessions: [],
     };
 
     const stats = monthStats(data, '2026-08');
@@ -109,6 +111,7 @@ describe('monthStats', () => {
         task({ name: 'Gym', target: 20, completedDates: days('2026-08', 15) }),
         task({ name: 'Reading', target: 12, completedDates: days('2026-08', 5) }),
       ],
+      sessions: [],
     };
 
     const stats = monthStats(data, '2026-08');
@@ -118,13 +121,13 @@ describe('monthStats', () => {
   });
 
   it('omits best/worst when there is nothing to compare', () => {
-    const single = monthStats({ tasks: [task({ name: 'Gym', target: 20 })] }, '2026-08');
+    const single = monthStats({ tasks: [task({ name: 'Gym', target: 20 })], sessions: [] }, '2026-08');
     expect(single.best).toBeNull();
     expect(single.worst).toBeNull();
   });
 
   it('handles an empty month', () => {
-    const stats = monthStats({ tasks: [] }, '2026-08');
+    const stats = monthStats({ tasks: [], sessions: [] }, '2026-08');
     expect(stats).toMatchObject({
       taskCount: 0,
       totalCompleted: 0,

@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import type { TrackerData } from '../types';
 import { summarise } from '../lib/validation';
+import { formatDuration } from '../lib/time';
 import { Modal } from './ui/Modal';
 
 export interface PendingImport {
@@ -61,6 +62,9 @@ export function ImportDialog({ pending, current, onConfirm, onClose }: ImportDia
             <p className="mt-1 tabular-nums">
               {existing.months} months · {existing.tasks} tasks · {existing.completions} completions
             </p>
+            <p className="text-xs text-slate-500 tabular-nums dark:text-slate-400">
+              {existing.sessions} sessions · {formatDuration(existing.trackedSeconds)} tracked
+            </p>
           </div>
           <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
             <p className="text-xs font-semibold tracking-wide text-indigo-600 uppercase dark:text-indigo-300">
@@ -68,6 +72,9 @@ export function ImportDialog({ pending, current, onConfirm, onClose }: ImportDia
             </p>
             <p className="mt-1 tabular-nums">
               {incoming.months} months · {incoming.tasks} tasks · {incoming.completions} completions
+            </p>
+            <p className="text-xs text-indigo-700/80 tabular-nums dark:text-indigo-300/80">
+              {incoming.sessions} sessions · {formatDuration(incoming.trackedSeconds)} tracked
             </p>
           </div>
         </div>

@@ -19,6 +19,17 @@ const sample = (): TrackerData => ({
           createdAt: '2026-08-01T00:00:00.000Z',
         },
       ],
+      // Mid-month, mid-day so the instant lands in August in any timezone.
+      sessions: [
+        {
+          id: 's1',
+          taskId: 'a',
+          startTime: '2026-08-15T12:00:00.000Z',
+          endTime: '2026-08-15T13:30:00.000Z',
+          durationSeconds: 5400,
+          createdAt: '2026-08-15T13:30:00.000Z',
+        },
+      ],
     },
   },
 });

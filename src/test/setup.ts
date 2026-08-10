@@ -5,4 +5,6 @@ import { afterEach } from 'vitest';
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  // Routing lives in the hash, so leave it clean for the next test.
+  location.hash = '';
 });

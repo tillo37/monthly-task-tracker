@@ -36,6 +36,8 @@ const MONTH_NAMES = [
 
 const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 const MONTH_KEY_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DATE_KEY_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
@@ -143,6 +145,37 @@ export function todayKey(now: Date = new Date()): DateKey {
 
 export function currentMonthKey(now: Date = new Date()): MonthKey {
   return monthKey(now.getFullYear(), now.getMonth() + 1);
+}
+
+/**
+ * The local calendar day an ISO instant falls on. Time sessions are stored as
+ * instants but always reported on the day the user experienced them, so this is
+ * deliberately local rather than UTC.
+ */
+export function dateKeyOfInstant(iso: string): DateKey | null {
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return null;
+  return todayKey(value);
+}
+
+/** The local calendar month an ISO instant falls in. */
+export function monthKeyOfInstant(iso: string): MonthKey | null {
+  const date = dateKeyOfInstant(iso);
+  return date && monthKeyOfDate(date);
+}
+
+/** `2026-08-09` -> `9 August 2026`. */
+export function dateLabel(date: DateKey): string {
+  const day = Number(date.slice(8, 10));
+  const { year, month } = parseMonthKey(monthKeyOfDate(date));
+  return `${day} ${MONTH_NAMES[month - 1]} ${year}`;
+}
+
+/** `2026-08-09` -> `Sun 9 Aug`, for dense session lists. */
+export function shortDateLabel(date: DateKey): string {
+  const day = Number(date.slice(8, 10));
+  const month = Number(date.slice(5, 7));
+  return `${WEEKDAY_NAMES[weekdayOf(date)]} ${day} ${MONTH_NAMES[month - 1].slice(0, 3)}`;
 }
 
 export type DayPosition = 'past' | 'today' | 'future';

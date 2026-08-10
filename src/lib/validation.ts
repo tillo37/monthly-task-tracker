@@ -1,10 +1,16 @@
-import type { MonthData, Task, TrackerData } from '../types';
+import type { MonthData, Task, TimeSession, TrackerData } from '../types';
 import { DEFAULT_COLOR, DEFAULT_ICON, isValidColor, TASK_ICONS } from './appearance';
-import { isValidDateKey, isValidMonthKey, monthKeyOfDate } from './date';
+import { isValidDateKey, isValidMonthKey, monthKeyOfDate, monthKeyOfInstant } from './date';
 import { createId } from './id';
+import { sortSessions } from './sessions';
 import { MAX_NAME_LENGTH, MAX_TARGET } from './tasks';
+import { durationBetween, MAX_SESSION_SECONDS } from './time';
 
-export const DATA_VERSION = 1;
+/**
+ * Version 2 added `months[].sessions`. Version 1 documents load unchanged — a
+ * missing session list simply reads as an empty one.
+ */
+export const DATA_VERSION = 2;
 
 export const emptyTrackerData = (): TrackerData => ({ version: DATA_VERSION, months: {} });
 
@@ -70,6 +76,63 @@ function parseTask(value: unknown, month: string, warnings: string[]): Task | nu
   };
 }
 
+/**
+ * Sanitises one time session. The duration is always recomputed from the two
+ * instants, so a hand-edited or buggy `durationSeconds` cannot inflate totals.
+ */
+function parseSession(
+  value: unknown,
+  month: string,
+  taskIds: Set<string>,
+  warnings: string[],
+): TimeSession | null {
+  if (!isObject(value)) {
+    warnings.push(`${month}: skipped a time session that was not an object.`);
+    return null;
+  }
+
+  const taskId = typeof value.taskId === 'string' ? value.taskId : '';
+  if (!taskIds.has(taskId)) {
+    warnings.push(`${month}: skipped a time session for a task that is not in this month.`);
+    return null;
+  }
+
+  const startTime = typeof value.startTime === 'string' ? value.startTime : '';
+  const endTime = typeof value.endTime === 'string' ? value.endTime : '';
+  const derived = durationBetween(startTime, endTime);
+  if (derived === null) {
+    warnings.push(`${month}: skipped a time session with an unreadable start or end time.`);
+    return null;
+  }
+  if (derived < 0) {
+    warnings.push(`${month}: skipped a time session that ended before it started.`);
+    return null;
+  }
+  if (monthKeyOfInstant(startTime) !== month) {
+    warnings.push(`${month}: skipped a time session that started outside this month.`);
+    return null;
+  }
+
+  const durationSeconds = Math.min(derived, MAX_SESSION_SECONDS);
+  if (durationSeconds !== derived) {
+    warnings.push(`${month}: clamped a time session longer than 24 hours.`);
+  }
+
+  const createdAt =
+    typeof value.createdAt === 'string' && !Number.isNaN(Date.parse(value.createdAt))
+      ? value.createdAt
+      : new Date(Date.parse(startTime)).toISOString();
+
+  return {
+    id: typeof value.id === 'string' && value.id ? value.id : createId(),
+    taskId,
+    startTime: new Date(Date.parse(startTime)).toISOString(),
+    endTime: new Date(Date.parse(endTime)).toISOString(),
+    durationSeconds,
+    createdAt,
+  };
+}
+
 function parseMonth(value: unknown, month: string, warnings: string[]): MonthData | null {
   if (!isObject(value) || !Array.isArray(value.tasks)) {
     warnings.push(`${month}: skipped because it had no task list.`);
@@ -86,7 +149,20 @@ function parseMonth(value: unknown, month: string, warnings: string[]): MonthDat
     seenIds.add(task.id);
     tasks.push(task);
   }
-  return { tasks };
+
+  // Absent in version 1 documents, which is not an error.
+  const rawSessions = Array.isArray(value.sessions) ? value.sessions : [];
+  const seenSessionIds = new Set<string>();
+  const sessions: TimeSession[] = [];
+  for (const entry of rawSessions) {
+    const session = parseSession(entry, month, seenIds, warnings);
+    if (!session) continue;
+    if (seenSessionIds.has(session.id)) session.id = createId();
+    seenSessionIds.add(session.id);
+    sessions.push(session);
+  }
+
+  return { tasks, sessions: sortSessions(sessions) };
 }
 
 /**
@@ -118,7 +194,13 @@ export function parseTrackerData(value: unknown): ParseResult {
 }
 
 /** Counts what an import would bring in, for the confirmation dialog. */
-export function summarise(data: TrackerData): { months: number; tasks: number; completions: number } {
+export function summarise(data: TrackerData): {
+  months: number;
+  tasks: number;
+  completions: number;
+  sessions: number;
+  trackedSeconds: number;
+} {
   const monthList = Object.values(data.months);
   return {
     months: monthList.length,
@@ -126,6 +208,12 @@ export function summarise(data: TrackerData): { months: number; tasks: number; c
     completions: monthList.reduce(
       (total, month) =>
         total + month.tasks.reduce((sum, task) => sum + task.completedDates.length, 0),
+      0,
+    ),
+    sessions: monthList.reduce((total, month) => total + month.sessions.length, 0),
+    trackedSeconds: monthList.reduce(
+      (total, month) =>
+        total + month.sessions.reduce((sum, session) => sum + session.durationSeconds, 0),
       0,
     ),
   };

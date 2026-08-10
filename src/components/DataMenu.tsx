@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Database, Download, RotateCcw, Upload } from 'lucide-react';
+import { Database, Download, RotateCcw, Timer, Upload } from 'lucide-react';
 
 interface DataMenuProps {
   monthName: string;
@@ -8,6 +8,8 @@ interface DataMenuProps {
   onImport: () => void;
   onResetMonth: () => void;
   canReset: boolean;
+  onClearSessions: () => void;
+  canClearSessions: boolean;
 }
 
 /** Dropdown holding the backup and reset actions, closed on Escape or outside click. */
@@ -18,6 +20,8 @@ export function DataMenu({
   onImport,
   onResetMonth,
   canReset,
+  onClearSessions,
+  canClearSessions,
 }: DataMenuProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -91,6 +95,17 @@ export function DataMenu({
           >
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
             Reset this month's progress
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!canClearSessions}
+            className={`${itemClass} text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10`}
+            onClick={run(onClearSessions)}
+          >
+            <Timer className="h-4 w-4" aria-hidden="true" />
+            Clear this month's tracked time
           </button>
         </div>
       )}

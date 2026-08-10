@@ -138,7 +138,13 @@ describe('summarise', () => {
     const result = parseTrackerData(valid);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(summarise(result.data)).toEqual({ months: 1, tasks: 1, completions: 1 });
+    expect(summarise(result.data)).toEqual({
+      months: 1,
+      tasks: 1,
+      completions: 1,
+      sessions: 0,
+      trackedSeconds: 0,
+    });
   });
 });
 
@@ -150,7 +156,7 @@ describe('buildBackup', () => {
 
   it('exports only the requested months', () => {
     const data = createDemoData('2026-08');
-    data.months['2026-09'] = { tasks: [] };
+    data.months['2026-09'] = { tasks: [], sessions: [] };
     expect(Object.keys(buildBackup(data, ['2026-09']).months)).toEqual(['2026-09']);
     expect(Object.keys(buildBackup(data, ['2030-01']).months)).toEqual([]);
   });
