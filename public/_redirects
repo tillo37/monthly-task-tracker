@@ -1,0 +1,3 @@
+# The tracker is a single-page app: every path must serve index.html so a
+# direct hit or a refresh does not 404 on Cloudflare Pages.
+/*  /index.html  200

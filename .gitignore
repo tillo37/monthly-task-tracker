@@ -28,3 +28,13 @@ coverage
 
 # Exported tracker backups — user data, never commit
 monthly-task-tracker-*.json
+
+# Supabase credentials — the anon key is public, but .env may also hold keys
+# that are not. Nothing in here belongs in the repository.
+.env
+.env.*
+!.env.example
+
+# Local Supabase working files
+supabase/.branches
+supabase/.temp

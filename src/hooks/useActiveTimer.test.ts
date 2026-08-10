@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryStorage } from '../storage/monthlyStorage';
 import { createTimerStorage, TIMER_STORAGE_KEY } from '../storage/timerStorage';
+import { createLocalTimerStore } from '../data/timerStore';
 import { useActiveTimer } from './useActiveTimer';
 
 const AUGUST = '2026-08';
@@ -18,13 +19,15 @@ describe('useActiveTimer', () => {
   });
 
   it('starts idle', () => {
-    const { result } = renderHook(() => useActiveTimer(createTimerStorage(createMemoryStorage())));
+    const store = createLocalTimerStore(createTimerStorage(createMemoryStorage()));
+    const { result } = renderHook(() => useActiveTimer(store));
     expect(result.current.isRunning).toBe(false);
     expect(result.current.elapsed).toBe(0);
   });
 
   it('counts up in seconds while running', () => {
-    const { result } = renderHook(() => useActiveTimer(createTimerStorage(createMemoryStorage())));
+    const store = createLocalTimerStore(createTimerStorage(createMemoryStorage()));
+    const { result } = renderHook(() => useActiveTimer(store));
 
     act(() => result.current.start('gym', AUGUST));
     expect(result.current.isRunning).toBe(true);
@@ -34,7 +37,8 @@ describe('useActiveTimer', () => {
   });
 
   it('records the elapsed interval as a session on stop', () => {
-    const { result } = renderHook(() => useActiveTimer(createTimerStorage(createMemoryStorage())));
+    const store = createLocalTimerStore(createTimerStorage(createMemoryStorage()));
+    const { result } = renderHook(() => useActiveTimer(store));
 
     act(() => result.current.start('gym', AUGUST));
     act(() => void vi.advanceTimersByTime(90 * 60_000));
@@ -53,7 +57,8 @@ describe('useActiveTimer', () => {
   });
 
   it('drops a session under a second', () => {
-    const { result } = renderHook(() => useActiveTimer(createTimerStorage(createMemoryStorage())));
+    const store = createLocalTimerStore(createTimerStorage(createMemoryStorage()));
+    const { result } = renderHook(() => useActiveTimer(store));
 
     act(() => result.current.start('gym', AUGUST));
     let stopped: ReturnType<typeof result.current.stop> | undefined;
@@ -65,7 +70,8 @@ describe('useActiveTimer', () => {
   });
 
   it('clamps a timer left running for days to a single day', () => {
-    const { result } = renderHook(() => useActiveTimer(createTimerStorage(createMemoryStorage())));
+    const store = createLocalTimerStore(createTimerStorage(createMemoryStorage()));
+    const { result } = renderHook(() => useActiveTimer(store));
 
     act(() => result.current.start('gym', AUGUST));
     act(() => void vi.advanceTimersByTime(3 * 24 * 3600 * 1000));
@@ -81,7 +87,8 @@ describe('useActiveTimer', () => {
 
   it('discards without producing a session', () => {
     const backing = createMemoryStorage();
-    const { result } = renderHook(() => useActiveTimer(createTimerStorage(backing)));
+    const store = createLocalTimerStore(createTimerStorage(backing));
+    const { result } = renderHook(() => useActiveTimer(store));
 
     act(() => result.current.start('gym', AUGUST));
     act(() => result.current.discard());
@@ -93,7 +100,8 @@ describe('useActiveTimer', () => {
 
   it('resumes a running timer after a reload, elapsed from the stored start', () => {
     const backing = createMemoryStorage();
-    const first = renderHook(() => useActiveTimer(createTimerStorage(backing)));
+    const firstStore = createLocalTimerStore(createTimerStorage(backing));
+    const first = renderHook(() => useActiveTimer(firstStore));
 
     act(() => first.result.current.start('gym', AUGUST));
     first.unmount();
@@ -101,14 +109,16 @@ describe('useActiveTimer', () => {
     // Time passes while the app is closed.
     vi.setSystemTime(new Date(START.getTime() + 10 * 60_000));
 
-    const second = renderHook(() => useActiveTimer(createTimerStorage(backing)));
+    const secondStore = createLocalTimerStore(createTimerStorage(backing));
+    const second = renderHook(() => useActiveTimer(secondStore));
     expect(second.result.current.isRunning).toBe(true);
     expect(second.result.current.elapsed).toBe(600);
   });
 
   it('assigns the session to the month the clock started in', () => {
     vi.setSystemTime(new Date(2026, 8, 1, 0, 30, 0, 0));
-    const { result } = renderHook(() => useActiveTimer(createTimerStorage(createMemoryStorage())));
+    const store = createLocalTimerStore(createTimerStorage(createMemoryStorage()));
+    const { result } = renderHook(() => useActiveTimer(store));
 
     // The user is still looking at August when they start the clock.
     act(() => result.current.start('gym', AUGUST));

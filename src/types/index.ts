@@ -103,3 +103,11 @@ export interface ActiveTimer {
 }
 
 export type Theme = 'light' | 'dark' | 'system';
+
+/** The signed-in user as the rest of the app sees them. */
+export interface Profile {
+  id: string;
+  displayName: string;
+  email: string;
+  createdAt: string;
+}

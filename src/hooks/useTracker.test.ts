@@ -1,13 +1,16 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createMemoryStorage, createMonthlyStorage } from '../storage/monthlyStorage';
+import { createLocalPersistence } from '../data/localPersistence';
 import { currentMonthKey } from '../lib/date';
 import { useTracker } from './useTracker';
 
 function setup() {
   const backing = createMemoryStorage();
   const storage = createMonthlyStorage(backing);
-  const view = renderHook(() => useTracker(storage));
+  // Built once: the hook re-hydrates whenever its persistence changes identity.
+  const persistence = createLocalPersistence(storage);
+  const view = renderHook(() => useTracker(persistence));
   return { ...view, backing, storage };
 }
 
@@ -158,9 +161,10 @@ describe('useTracker', () => {
     expect(result.current.month).toBe(currentMonthKey());
   });
 
-  it('persists changes and reloads them from storage', () => {
+  it('persists changes and reloads them from storage', async () => {
     const backing = createMemoryStorage();
-    const first = renderHook(() => useTracker(createMonthlyStorage(backing)));
+    const firstPersistence = createLocalPersistence(createMonthlyStorage(backing));
+    const first = renderHook(() => useTracker(firstPersistence));
 
     act(() => first.result.current.goToMonth(AUGUST));
     act(() => first.result.current.addTask({ name: 'Gym', target: 20 }));
@@ -170,9 +174,13 @@ describe('useTracker', () => {
         '2026-08-09',
       ),
     );
+    // Writes go through a queue that drains one at a time, so let it finish
+    // before pretending the app was closed.
+    await act(async () => {});
     first.unmount();
 
-    const second = renderHook(() => useTracker(createMonthlyStorage(backing)));
+    const secondPersistence = createLocalPersistence(createMonthlyStorage(backing));
+    const second = renderHook(() => useTracker(secondPersistence));
     act(() => second.result.current.goToMonth(AUGUST));
 
     expect(second.result.current.monthData.tasks[0]).toMatchObject({

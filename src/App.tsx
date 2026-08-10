@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { CheckSquare } from 'lucide-react';
+import { CheckSquare, CloudOff, Loader2, RefreshCw } from 'lucide-react';
 import type { Task, TimeSession, TrackerData } from './types';
 import { AppNav } from './components/AppNav';
 import { TaskFormDialog } from './components/TaskFormDialog';
 import { DataMenu } from './components/DataMenu';
 import { ThemeToggle } from './components/ThemeToggle';
+import { ProfileMenu } from './components/ProfileMenu';
 import { ImportDialog, type PendingImport } from './components/ImportDialog';
+import { MigrationDialog } from './components/MigrationDialog';
 import { ManualSessionDialog } from './components/time/ManualSessionDialog';
 import { ConfirmDialog, type ConfirmOptions } from './components/ui/ConfirmDialog';
 import { TasksView } from './views/TasksView';
 import { TimeTrackerView } from './views/TimeTrackerView';
 import { ReportsView } from './views/ReportsView';
+import { LeaderboardView } from './views/LeaderboardView';
+import { AuthView } from './views/AuthView';
+import { ResetPasswordView } from './views/ResetPasswordView';
+import { useOptionalAuth, type Auth } from './auth/context';
 import { useTracker } from './hooks/useTracker';
 import { useTheme } from './hooks/useTheme';
 import { useActiveTimer } from './hooks/useActiveTimer';
@@ -22,6 +28,7 @@ import { createDemoData } from './lib/demoData';
 import { createSession, type SessionInput } from './lib/sessions';
 import { periodForPreset, type ReportPeriod } from './lib/reportRange';
 import { describeDuration, formatClock, formatDuration } from './lib/time';
+import { getSupabase, isCloudConfigured } from './lib/supabase';
 import {
   createMemoryStorage,
   createMonthlyStorage,
@@ -29,31 +36,134 @@ import {
   STORAGE_KEY,
 } from './storage/monthlyStorage';
 import { createTimerStorage, timerStorage } from './storage/timerStorage';
+import { createLocalPersistence } from './data/localPersistence';
+import { createSupabasePersistence } from './data/supabasePersistence';
+import { createLocalTimerStore, createSupabaseTimerStore, type TimerStore } from './data/timerStore';
+import {
+  createSupabaseLeaderboardSource,
+  type LeaderboardSource,
+} from './data/leaderboardSource';
+import {
+  dismissMigration,
+  isMigrationDismissed,
+  readLocalData,
+  type LocalDataSummary,
+} from './data/localMigration';
+import type { TrackerPersistence } from './data/ops';
 import type { TaskInput } from './lib/tasks';
 
-/** `?demo` runs the app on throwaway in-memory data seeded with example tasks. */
-function useAppStorage() {
-  return useMemo(() => {
-    const isDemo =
-      typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo');
-    if (!isDemo) return { storage: monthlyStorage, timers: timerStorage, isDemo: false };
-
-    const memory = createMemoryStorage();
-    memory.setItem(STORAGE_KEY, JSON.stringify(createDemoData()));
-    return {
-      storage: createMonthlyStorage(memory),
-      timers: createTimerStorage(createMemoryStorage()),
-      isDemo: true,
-    };
-  }, []);
+/** Everything the tracker needs in order to read and write, in one place. */
+interface Backend {
+  persistence: TrackerPersistence;
+  timers: TimerStore;
+  /** `null` in local-only and demo mode, where there is nobody to rank against. */
+  leaderboard: LeaderboardSource | null;
+  isDemo: boolean;
+  isCloud: boolean;
 }
 
+/** `?demo` runs the app on throwaway in-memory data seeded with example tasks. */
+const isDemoMode = () =>
+  typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo');
+
+function demoBackend(): Backend {
+  const memory = createMemoryStorage();
+  memory.setItem(STORAGE_KEY, JSON.stringify(createDemoData()));
+  return {
+    persistence: createLocalPersistence(createMonthlyStorage(memory)),
+    timers: createLocalTimerStore(createTimerStorage(createMemoryStorage())),
+    leaderboard: null,
+    isDemo: true,
+    isCloud: false,
+  };
+}
+
+function localBackend(): Backend {
+  return {
+    persistence: createLocalPersistence(monthlyStorage),
+    timers: createLocalTimerStore(timerStorage),
+    leaderboard: null,
+    isDemo: false,
+    isCloud: false,
+  };
+}
+
+/**
+ * Chooses what the app is today: a demo, the original local-only tracker when
+ * no Supabase credentials are configured, or the signed-in cloud app.
+ */
 export default function App() {
-  const { storage, timers, isDemo } = useAppStorage();
-  const tracker = useTracker(storage);
   const { theme, cycleTheme } = useTheme();
+  // Absent in the local-only build and in demo mode, neither of which has, or
+  // needs, accounts.
+  const auth = useOptionalAuth();
+  const demo = useMemo(isDemoMode, []);
+
+  const offlineBackend = useMemo(() => (demo ? demoBackend() : localBackend()), [demo]);
+
+  const cloudBackend = useMemo<Backend | null>(() => {
+    const id = auth?.userId;
+    if (demo || !isCloudConfigured || !id) return null;
+    const client = getSupabase();
+    return {
+      persistence: createSupabasePersistence(client, id),
+      timers: createSupabaseTimerStore(client, id),
+      leaderboard: createSupabaseLeaderboardSource(client),
+      isDemo: false,
+      isCloud: true,
+    };
+  }, [auth?.userId, demo]);
+
+  // Demo mode and an unconfigured build both skip authentication entirely, so
+  // the tracker keeps working exactly as it did before it grew accounts.
+  if (demo || !isCloudConfigured || !auth) {
+    return (
+      <TrackerApp backend={offlineBackend} auth={null} theme={theme} onCycleTheme={cycleTheme} />
+    );
+  }
+
+  if (auth.status === 'loading') {
+    return (
+      <div className="flex min-h-dvh items-center justify-center" role="status" aria-live="polite">
+        <Loader2 className="h-5 w-5 animate-spin text-indigo-500" aria-hidden="true" />
+        <span className="sr-only">Checking your session…</span>
+      </div>
+    );
+  }
+
+  if (auth.status === 'signedOut') {
+    return <AuthView theme={theme} onCycleTheme={cycleTheme} />;
+  }
+
+  // A recovery link signs the user in, so this has to come before the tracker.
+  if (auth.recovering) return <ResetPasswordView />;
+
+  if (!cloudBackend) return null;
+  return (
+    <TrackerApp
+      key={auth.userId ?? 'anonymous'}
+      backend={cloudBackend}
+      auth={auth}
+      theme={theme}
+      onCycleTheme={cycleTheme}
+    />
+  );
+}
+
+interface TrackerAppProps {
+  backend: Backend;
+  /** `null` in local-only and demo mode. */
+  auth: Auth | null;
+  theme: ReturnType<typeof useTheme>['theme'];
+  onCycleTheme: () => void;
+}
+
+function TrackerApp({ backend, auth, theme, onCycleTheme }: TrackerAppProps) {
+  const { persistence, timers, leaderboard, isDemo, isCloud } = backend;
+  const tracker = useTracker(persistence);
   const { route, navigate } = useRoute();
   const timer = useActiveTimer(timers);
+  const userId = auth?.userId ?? null;
 
   const [formTask, setFormTask] = useState<Task | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -62,6 +172,8 @@ export default function App() {
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const [status, setStatus] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [localData, setLocalData] = useState<LocalDataSummary | null>(null);
+  const [migrating, setMigrating] = useState(false);
   // The report period is deliberately separate from the tracker's month, so
   // browsing reports never moves the task grid.
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>(() =>
@@ -73,6 +185,9 @@ export default function App() {
   const tasks = monthData.tasks;
   const previousMonth = addMonths(month, -1);
   const hasCompletions = tasks.some((task) => task.completedDates.length > 0);
+
+  /** Tells other viewers their standings moved. Never carries any data. */
+  const announce = useCallback(() => leaderboard?.announce?.(), [leaderboard]);
 
   // The timed task may live in a month the user is not currently looking at.
   const runningTask = timer.timer
@@ -89,11 +204,14 @@ export default function App() {
 
   // A timer whose task was deleted underneath it has nothing left to record.
   // Keyed on the timer itself rather than the controller, which is new each tick.
+  // While the document is still loading the task simply is not here yet, which
+  // is not the same thing as it being gone.
   const isTiming = timer.timer !== null;
   const discardTimerNow = timer.discard;
   useEffect(() => {
+    if (tracker.loading) return;
     if (isTiming && !runningTask) discardTimerNow();
-  }, [discardTimerNow, isTiming, runningTask]);
+  }, [discardTimerNow, isTiming, runningTask, tracker.loading]);
 
   // Status messages are transient; clear them so the live region does not
   // re-announce stale text.
@@ -102,6 +220,13 @@ export default function App() {
     const timeout = setTimeout(() => setStatus(''), 4000);
     return () => clearTimeout(timeout);
   }, [status]);
+
+  // Offer to bring across data from the local-only version, once per account.
+  useEffect(() => {
+    if (!isCloud || tracker.loading || !userId) return;
+    if (isMigrationDismissed(userId)) return;
+    setLocalData((current) => current ?? readLocalData());
+  }, [userId, isCloud, tracker.loading]);
 
   const openCreateForm = useCallback(() => {
     setFormTask(null);
@@ -139,11 +264,12 @@ export default function App() {
         confirmLabel: 'Delete',
         onConfirm: () => {
           tracker.deleteTask(task.id);
+          announce();
           setStatus(`Deleted "${task.name}".`);
         },
       });
     },
-    [timeStats, tracker],
+    [announce, timeStats, tracker],
   );
 
   const requestReset = useCallback(() => {
@@ -153,10 +279,11 @@ export default function App() {
       confirmLabel: 'Reset progress',
       onConfirm: () => {
         tracker.resetMonth();
+        announce();
         setStatus(`Cleared completions for ${monthLabel(month)}.`);
       },
     });
-  }, [month, tracker]);
+  }, [announce, month, tracker]);
 
   const requestClearSessions = useCallback(() => {
     setConfirm({
@@ -167,10 +294,11 @@ export default function App() {
       confirmLabel: 'Clear time',
       onConfirm: () => {
         tracker.clearMonthSessions();
+        announce();
         setStatus(`Cleared tracked time for ${monthLabel(month)}.`);
       },
     });
-  }, [month, timeStats.sessionCount, tracker]);
+  }, [announce, month, timeStats.sessionCount, tracker]);
 
   const copyPrevious = useCallback(() => {
     const count = tracker.previousMonthTaskCount;
@@ -227,10 +355,30 @@ export default function App() {
       // The imported document knows nothing about a timer started before it.
       timer.discard();
       tracker.replaceData(data);
+      announce();
       setStatus('Data imported.');
     },
-    [timer, tracker],
+    [announce, timer, tracker],
   );
+
+  const importLocalData = useCallback(
+    (data: TrackerData) => {
+      setMigrating(true);
+      timer.discard();
+      tracker.replaceData(data);
+      announce();
+      if (userId) dismissMigration(userId);
+      setLocalData(null);
+      setMigrating(false);
+      setStatus('Imported the data stored in this browser.');
+    },
+    [announce, userId, timer, tracker],
+  );
+
+  const dismissLocalData = useCallback(() => {
+    if (userId) dismissMigration(userId);
+    setLocalData(null);
+  }, [userId]);
 
   const startTimer = useCallback(() => {
     if (!selectedTaskId) return;
@@ -248,9 +396,10 @@ export default function App() {
     if (stopped.status === 'idle') return;
 
     tracker.addSession(stopped.session, stopped.month);
+    announce();
     const name = runningTask?.name ?? 'task';
     setStatus(`Saved ${formatDuration(stopped.session.durationSeconds)} for "${name}".`);
-  }, [runningTask, timer, tracker]);
+  }, [announce, runningTask, timer, tracker]);
 
   const discardTimer = useCallback(() => {
     setConfirm({
@@ -268,12 +417,13 @@ export default function App() {
     (input: SessionInput) => {
       const session = createSession(input);
       tracker.addSession(session, month);
+      announce();
       const task = tasks.find((candidate) => candidate.id === input.taskId);
       setStatus(
         `Added ${formatDuration(session.durationSeconds)}${task ? ` to "${task.name}"` : ''}.`,
       );
     },
-    [month, tasks, tracker],
+    [announce, month, tasks, tracker],
   );
 
   const deleteSession = useCallback(
@@ -284,11 +434,20 @@ export default function App() {
         confirmLabel: 'Delete',
         onConfirm: () => {
           tracker.deleteSession(session.id, month);
+          announce();
           setStatus('Session deleted.');
         },
       });
     },
-    [month, tracker],
+    [announce, month, tracker],
+  );
+
+  const toggleCompletion = useCallback(
+    (taskId: string, date: string) => {
+      tracker.toggleCompletion(taskId, date);
+      announce();
+    },
+    [announce, tracker],
   );
 
   const removeOrphans = useCallback(() => {
@@ -328,6 +487,7 @@ export default function App() {
             section={route.section}
             onNavigate={(section) => goTo(section)}
             runningLabel={timer.isRunning ? formatClock(timer.elapsed) : undefined}
+            showLeaderboard={leaderboard !== null}
           />
 
           <div className="flex items-center gap-2">
@@ -341,68 +501,110 @@ export default function App() {
               onClearSessions={requestClearSessions}
               canClearSessions={timeStats.sessionCount > 0}
             />
-            <ThemeToggle theme={theme} onCycle={cycleTheme} />
+            {isCloud && <ProfileMenu onStatus={setStatus} />}
+            <ThemeToggle theme={theme} onCycle={onCycleTheme} />
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-[1400px] space-y-4 px-4 py-5 sm:px-6">
-        {route.section === 'tasks' && (
-          <TasksView
-            month={month}
-            tasks={tasks}
-            stats={stats}
-            timeStats={timeStats}
-            previousMonth={previousMonth}
-            previousMonthTaskCount={tracker.previousMonthTaskCount}
-            onPreviousMonth={tracker.goToPreviousMonth}
-            onNextMonth={tracker.goToNextMonth}
-            onCurrentMonth={tracker.goToCurrentMonth}
-            onSelectMonth={tracker.goToMonth}
-            onToggle={tracker.toggleCompletion}
-            onAddTask={openCreateForm}
-            onEditTask={openEditForm}
-            onDeleteTask={requestDelete}
-            onCopyPrevious={copyPrevious}
-          />
+        {tracker.loadError && (
+          <div role="alert" className="card flex flex-wrap items-center justify-between gap-3 p-4">
+            <p className="text-sm text-red-600 dark:text-red-400">{tracker.loadError}</p>
+            <button type="button" className="btn btn-md btn-subtle" onClick={() => void tracker.reload()}>
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              Try again
+            </button>
+          </div>
         )}
 
-        {route.section === 'time' && (
-          <TimeTrackerView
-            month={month}
-            monthData={monthData}
-            timeStats={timeStats}
-            tab={route.timeTab}
-            onSelectTab={(tab) => goTo('time', tab)}
-            onPreviousMonth={tracker.goToPreviousMonth}
-            onNextMonth={tracker.goToNextMonth}
-            onCurrentMonth={tracker.goToCurrentMonth}
-            onSelectMonth={tracker.goToMonth}
-            selectedTaskId={selectedTaskId}
-            onSelectTask={setSelectedTaskId}
-            runningTask={runningTask}
-            runningMonth={timer.timer?.month ?? null}
-            elapsed={timer.elapsed}
-            onStart={startTimer}
-            onStop={stopTimer}
-            onDiscard={discardTimer}
-            onAddManual={() => setManualOpen(true)}
-            onDeleteSession={deleteSession}
-            onGoToTasks={() => goTo('tasks')}
-          />
+        {tracker.sync.error && (
+          <div role="alert" className="card flex flex-wrap items-center justify-between gap-3 p-4">
+            <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+              <CloudOff className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                {tracker.sync.error} Your {tracker.sync.pending} unsaved change
+                {tracker.sync.pending === 1 ? '' : 's'} will be sent when the connection is back.
+              </span>
+            </p>
+            <button type="button" className="btn btn-md btn-subtle" onClick={tracker.sync.retry}>
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              Retry now
+            </button>
+          </div>
         )}
 
-        {route.section === 'reports' && (
-          <ReportsView
-            data={tracker.data}
-            period={reportPeriod}
-            onPeriodChange={setReportPeriod}
-            onRemoveOrphans={removeOrphans}
-          />
+        {tracker.loading ? (
+          <div className="card flex items-center justify-center gap-2 p-12" role="status" aria-live="polite">
+            <Loader2 className="h-4 w-4 animate-spin text-indigo-500" aria-hidden="true" />
+            <span className="text-sm text-slate-600 dark:text-slate-400">Loading your data…</span>
+          </div>
+        ) : (
+          <>
+            {route.section === 'tasks' && (
+              <TasksView
+                month={month}
+                tasks={tasks}
+                stats={stats}
+                timeStats={timeStats}
+                previousMonth={previousMonth}
+                previousMonthTaskCount={tracker.previousMonthTaskCount}
+                onPreviousMonth={tracker.goToPreviousMonth}
+                onNextMonth={tracker.goToNextMonth}
+                onCurrentMonth={tracker.goToCurrentMonth}
+                onSelectMonth={tracker.goToMonth}
+                onToggle={toggleCompletion}
+                onAddTask={openCreateForm}
+                onEditTask={openEditForm}
+                onDeleteTask={requestDelete}
+                onCopyPrevious={copyPrevious}
+              />
+            )}
+
+            {route.section === 'time' && (
+              <TimeTrackerView
+                month={month}
+                monthData={monthData}
+                timeStats={timeStats}
+                tab={route.timeTab}
+                onSelectTab={(tab) => goTo('time', tab)}
+                onPreviousMonth={tracker.goToPreviousMonth}
+                onNextMonth={tracker.goToNextMonth}
+                onCurrentMonth={tracker.goToCurrentMonth}
+                onSelectMonth={tracker.goToMonth}
+                selectedTaskId={selectedTaskId}
+                onSelectTask={setSelectedTaskId}
+                runningTask={runningTask}
+                runningMonth={timer.timer?.month ?? null}
+                elapsed={timer.elapsed}
+                onStart={startTimer}
+                onStop={stopTimer}
+                onDiscard={discardTimer}
+                onAddManual={() => setManualOpen(true)}
+                onDeleteSession={deleteSession}
+                onGoToTasks={() => goTo('tasks')}
+              />
+            )}
+
+            {route.section === 'reports' && (
+              <ReportsView
+                data={tracker.data}
+                period={reportPeriod}
+                onPeriodChange={setReportPeriod}
+                onRemoveOrphans={removeOrphans}
+              />
+            )}
+
+            {route.section === 'leaderboard' && leaderboard && (
+              <LeaderboardView source={leaderboard} currentUserId={userId} />
+            )}
+          </>
         )}
 
         <p className="pb-6 text-center text-xs text-slate-500 dark:text-slate-400">
-          Everything is stored locally in your browser. Export a backup from the Data menu.
+          {isCloud
+            ? 'Your tasks, completions and sessions are private to your account. Export a backup from the Data menu.'
+            : 'Everything is stored locally in your browser. Export a backup from the Data menu.'}
         </p>
       </main>
 
@@ -437,6 +639,14 @@ export default function App() {
         current={tracker.data}
         onConfirm={applyImport}
         onClose={() => setPendingImport(null)}
+      />
+
+      <MigrationDialog
+        local={localData}
+        cloud={tracker.data}
+        busy={migrating}
+        onImport={importLocalData}
+        onDismiss={dismissLocalData}
       />
 
       <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />

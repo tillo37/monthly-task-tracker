@@ -8,6 +8,9 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // The integration suite needs a running database and its own config; it is
+    // run separately with `npm run test:integration`.
+    include: ['src/**/*.test.{ts,tsx}'],
     css: false,
     coverage: {
       provider: 'v8',

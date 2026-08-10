@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 /** Top-level sections of the app. */
-export type Section = 'tasks' | 'time' | 'reports';
+export type Section = 'tasks' | 'time' | 'reports' | 'leaderboard';
 
 /** Sub-pages within the time tracker. */
 export type TimeTab = 'timer' | 'sessions';
@@ -26,6 +26,8 @@ export function parseHash(hash: string): Route {
       return { section: 'time', timeTab: sub === 'sessions' ? 'sessions' : 'timer' };
     case 'reports':
       return { section: 'reports', timeTab: 'timer' };
+    case 'leaderboard':
+      return { section: 'leaderboard', timeTab: 'timer' };
     default:
       return DEFAULT_ROUTE;
   }

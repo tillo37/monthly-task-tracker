@@ -1,4 +1,4 @@
-import { BarChart3, CheckSquare, Timer } from 'lucide-react';
+import { BarChart3, CheckSquare, Timer, Trophy } from 'lucide-react';
 import { hashFor, type Section } from '../hooks/useRoute';
 
 interface AppNavProps {
@@ -6,22 +6,27 @@ interface AppNavProps {
   onNavigate: (section: Section) => void;
   /** Shown on the Time Tracker tab while a timer is running. */
   runningLabel?: string;
+  /** Hidden in local-only mode, where there is nobody to rank against. */
+  showLeaderboard?: boolean;
 }
 
 const ITEMS: { section: Section; label: string; icon: typeof CheckSquare }[] = [
   { section: 'tasks', label: 'Tasks', icon: CheckSquare },
   { section: 'time', label: 'Time Tracker', icon: Timer },
   { section: 'reports', label: 'Reports', icon: BarChart3 },
+  { section: 'leaderboard', label: 'Leaderboard', icon: Trophy },
 ];
 
 /**
  * Primary section navigation. Real anchors so the hash routes are linkable and
  * middle-clickable, with the click intercepted only to keep state in step.
  */
-export function AppNav({ section, onNavigate, runningLabel }: AppNavProps) {
+export function AppNav({ section, onNavigate, runningLabel, showLeaderboard }: AppNavProps) {
+  const items = showLeaderboard ? ITEMS : ITEMS.filter((item) => item.section !== 'leaderboard');
+
   return (
     <nav aria-label="Sections" className="flex items-center gap-1">
-      {ITEMS.map((item) => {
+      {items.map((item) => {
         const active = item.section === section;
         const Icon = item.icon;
 
