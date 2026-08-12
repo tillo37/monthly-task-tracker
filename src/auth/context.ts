@@ -27,7 +27,18 @@ export interface AuthActions {
   dismissRecovery(): void;
 }
 
-export type Auth = AuthState & AuthActions & { userId: string | null };
+export type Auth = AuthState &
+  AuthActions & {
+    userId: string | null;
+    /**
+     * Whether to *offer* the Admin Panel. It mirrors `profiles.role`, which the
+     * client cannot write. Every admin query is authorised again in Postgres,
+     * so flipping this in a debugger changes what is drawn and nothing else.
+     */
+    isAdmin: boolean;
+    /** True while the account is locked out by an administrator. */
+    isDisabled: boolean;
+  };
 
 export const AuthContext = createContext<Auth | null>(null);
 

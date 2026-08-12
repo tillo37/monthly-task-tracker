@@ -46,12 +46,98 @@ export type ActiveTimerRow = {
   created_at: string;
 };
 
+/** The only two roles that exist; anything else fails the database's check. */
+export type UserRole = 'user' | 'admin';
+
 export type ProfileRow = {
   id: string;
   display_name: string;
   email: string;
+  /** Authoritative. Written only by `admin_set_role`, never by a client. */
+  role: UserRole;
+  /** Set while the account is locked out; `null` for an ordinary account. */
+  disabled_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type AdminAuditLogRow = {
+  id: string;
+  admin_user_id: string | null;
+  admin_email: string | null;
+  action: string;
+  target_user_id: string | null;
+  target_email: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type AppSettingRow = {
+  key: string;
+  value: unknown;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export type AdminStatsRow = {
+  total_users: number;
+  admin_count: number;
+  disabled_users: number;
+  active_today: number;
+  active_this_month: number;
+  total_seconds: number;
+  total_sessions: number;
+  total_completions: number;
+  total_tasks: number;
+};
+
+export type AdminActivityRow = {
+  at: string;
+  user_id: string;
+  display_name: string;
+  action: string;
+  detail: string;
+};
+
+export type AdminUserRow = {
+  user_id: string;
+  display_name: string;
+  email: string;
+  role: UserRole;
+  created_at: string;
+  last_active_at: string | null;
+  disabled_at: string | null;
+  total_seconds: number;
+  session_count: number;
+  completion_count: number;
+  task_count: number;
+  /** Total rows matching the search, before the page limit. */
+  total_count: number;
+};
+
+export type AdminUserDetailRow = {
+  user_id: string;
+  display_name: string;
+  email: string;
+  role: UserRole;
+  created_at: string;
+  last_active_at: string | null;
+  first_active_at: string | null;
+  disabled_at: string | null;
+  total_seconds: number;
+  session_count: number;
+  completion_count: number;
+  task_count: number;
+  active_months: number;
+};
+
+export type AdminUserActivityRow = {
+  /** `YYYY-MM`. */
+  month: string;
+  tracked_seconds: number;
+  session_count: number;
+  completion_count: number;
+  task_count: number;
 };
 
 export type LeaderboardTimeRow = {
@@ -117,9 +203,38 @@ export type Database = {
         ActiveTimerRow,
         { user_id: string; task_id: string; start_time: string; month: string }
       >;
+      // Both admin tables are readable by administrators and writable by
+      // nobody: the log is appended to only by SECURITY DEFINER functions, and
+      // the settings row is changed only through `admin_set_registration_enabled`.
+      admin_audit_log: Table<AdminAuditLogRow, never, never>;
+      app_settings: Table<AppSettingRow, never, never>;
     };
     Views: Record<never, never>;
     Functions: {
+      is_admin: { Args: Record<string, never>; Returns: boolean };
+      registration_enabled: { Args: Record<string, never>; Returns: boolean };
+      admin_stats: { Args: Record<string, never>; Returns: AdminStatsRow[] };
+      admin_recent_activity: { Args: { p_limit?: number }; Returns: AdminActivityRow[] };
+      admin_list_users: {
+        Args: { p_search?: string | null; p_limit?: number; p_offset?: number };
+        Returns: AdminUserRow[];
+      };
+      admin_user_detail: { Args: { p_user_id: string }; Returns: AdminUserDetailRow[] };
+      admin_user_activity: {
+        Args: { p_user_id: string; p_months?: number };
+        Returns: AdminUserActivityRow[];
+      };
+      admin_set_display_name: {
+        Args: { p_user_id: string; p_display_name: string };
+        Returns: undefined;
+      };
+      admin_set_role: { Args: { p_user_id: string; p_role: UserRole }; Returns: undefined };
+      admin_set_disabled: { Args: { p_user_id: string; p_disabled: boolean }; Returns: undefined };
+      admin_delete_user: { Args: { p_user_id: string }; Returns: undefined };
+      admin_set_registration_enabled: { Args: { p_enabled: boolean }; Returns: undefined };
+      admin_note_session: { Args: Record<string, never>; Returns: undefined };
+      /** Service role only; there is no path to this from a browser. */
+      bootstrap_admin: { Args: { p_email: string }; Returns: undefined };
       leaderboard_time: {
         Args: { p_month: string };
         Returns: LeaderboardTimeRow[];

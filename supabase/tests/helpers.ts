@@ -65,6 +65,19 @@ export async function deleteUsers(users: TestUser[]): Promise<void> {
   }
 }
 
+/**
+ * Promotes an account the only way production can: from a trusted connection.
+ * There is no path from a browser to this, which is the point.
+ */
+export async function makeAdmin(user: TestUser): Promise<void> {
+  const admin = serviceClient();
+  const { error } = await admin.rpc('bootstrap_admin', { p_email: user.email });
+  if (error) throw new Error(`Could not promote ${user.displayName}: ${error.message}`);
+  // The role rides in the JWT's row, not the token, but re-reading the profile
+  // keeps the client's own view honest.
+  await user.client.from('profiles').select('role').eq('id', user.id).maybeSingle();
+}
+
 /** An anonymous client, for checking what a signed-out visitor can reach. */
 export function anonymousClient(): Client {
   return createClient<Database>(url, anonKey, {

@@ -14,13 +14,15 @@ import { TasksView } from './views/TasksView';
 import { TimeTrackerView } from './views/TimeTrackerView';
 import { ReportsView } from './views/ReportsView';
 import { LeaderboardView } from './views/LeaderboardView';
+import { AdminView } from './views/AdminView';
 import { AuthView } from './views/AuthView';
+import { DisabledAccountView } from './views/DisabledAccountView';
 import { ResetPasswordView } from './views/ResetPasswordView';
 import { useOptionalAuth, type Auth } from './auth/context';
 import { useTracker } from './hooks/useTracker';
 import { useTheme } from './hooks/useTheme';
 import { useActiveTimer } from './hooks/useActiveTimer';
-import { useRoute, type Section, type TimeTab } from './hooks/useRoute';
+import { useRoute, type AdminTab, type Section, type TimeTab } from './hooks/useRoute';
 import { addMonths, monthLabel } from './lib/date';
 import { backupFilename, buildBackup, downloadJson } from './lib/backup';
 import { parseTrackerData } from './lib/validation';
@@ -43,6 +45,7 @@ import {
   createSupabaseLeaderboardSource,
   type LeaderboardSource,
 } from './data/leaderboardSource';
+import { createSupabaseAdminSource, type AdminSource } from './data/adminSource';
 import {
   dismissMigration,
   isMigrationDismissed,
@@ -58,6 +61,8 @@ interface Backend {
   timers: TimerStore;
   /** `null` in local-only and demo mode, where there is nobody to rank against. */
   leaderboard: LeaderboardSource | null;
+  /** `null` wherever there are no accounts, so there is nothing to administer. */
+  admin: AdminSource | null;
   isDemo: boolean;
   isCloud: boolean;
 }
@@ -73,6 +78,7 @@ function demoBackend(): Backend {
     persistence: createLocalPersistence(createMonthlyStorage(memory)),
     timers: createLocalTimerStore(createTimerStorage(createMemoryStorage())),
     leaderboard: null,
+    admin: null,
     isDemo: true,
     isCloud: false,
   };
@@ -83,6 +89,7 @@ function localBackend(): Backend {
     persistence: createLocalPersistence(monthlyStorage),
     timers: createLocalTimerStore(timerStorage),
     leaderboard: null,
+    admin: null,
     isDemo: false,
     isCloud: false,
   };
@@ -109,6 +116,7 @@ export default function App() {
       persistence: createSupabasePersistence(client, id),
       timers: createSupabaseTimerStore(client, id),
       leaderboard: createSupabaseLeaderboardSource(client),
+      admin: createSupabaseAdminSource(client),
       isDemo: false,
       isCloud: true,
     };
@@ -138,6 +146,10 @@ export default function App() {
   // A recovery link signs the user in, so this has to come before the tracker.
   if (auth.recovering) return <ResetPasswordView />;
 
+  // A locked-out account would otherwise see an app that silently returns
+  // nothing; the database has already stopped it, this just says so.
+  if (auth.isDisabled) return <DisabledAccountView onSignOut={auth.signOut} />;
+
   if (!cloudBackend) return null;
   return (
     <TrackerApp
@@ -159,7 +171,7 @@ interface TrackerAppProps {
 }
 
 function TrackerApp({ backend, auth, theme, onCycleTheme }: TrackerAppProps) {
-  const { persistence, timers, leaderboard, isDemo, isCloud } = backend;
+  const { persistence, timers, leaderboard, admin, isDemo, isCloud } = backend;
   const tracker = useTracker(persistence);
   const { route, navigate } = useRoute();
   const timer = useActiveTimer(timers);
@@ -455,7 +467,10 @@ function TrackerApp({ backend, auth, theme, onCycleTheme }: TrackerAppProps) {
     setStatus('Removed sessions with no task.');
   }, [tracker]);
 
-  const goTo = useCallback((section: Section, tab?: TimeTab) => navigate(section, tab), [navigate]);
+  const goTo = useCallback(
+    (section: Section, tab?: TimeTab | AdminTab) => navigate(section, tab),
+    [navigate],
+  );
 
   return (
     <div className="min-h-dvh">
@@ -488,6 +503,7 @@ function TrackerApp({ backend, auth, theme, onCycleTheme }: TrackerAppProps) {
             onNavigate={(section) => goTo(section)}
             runningLabel={timer.isRunning ? formatClock(timer.elapsed) : undefined}
             showLeaderboard={leaderboard !== null}
+            showAdmin={auth?.isAdmin ?? false}
           />
 
           <div className="flex items-center gap-2">
@@ -534,7 +550,18 @@ function TrackerApp({ backend, auth, theme, onCycleTheme }: TrackerAppProps) {
           </div>
         )}
 
-        {tracker.loading ? (
+        {route.section === 'admin' ? (
+          <AdminView
+            source={admin}
+            leaderboard={leaderboard}
+            tab={route.adminTab}
+            onSelectTab={(tab) => goTo('admin', tab)}
+            isAdmin={auth?.isAdmin ?? false}
+            currentUserId={userId}
+            onStatus={setStatus}
+            onConfirm={setConfirm}
+          />
+        ) : tracker.loading ? (
           <div className="card flex items-center justify-center gap-2 p-12" role="status" aria-live="polite">
             <Loader2 className="h-4 w-4 animate-spin text-indigo-500" aria-hidden="true" />
             <span className="text-sm text-slate-600 dark:text-slate-400">Loading your data…</span>

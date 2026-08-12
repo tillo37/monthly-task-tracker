@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { Profile } from '../types';
+import type { ProfileRow } from '../types/database';
 import { getSupabase, isCloudConfigured, redirectTo } from '../lib/supabase';
 import {
   AuthContext,
@@ -10,6 +11,27 @@ import {
   type AuthActions,
   type AuthState,
 } from './context';
+
+type ProfileFields = Pick<
+  ProfileRow,
+  'id' | 'display_name' | 'email' | 'role' | 'disabled_at' | 'created_at'
+>;
+
+/**
+ * The role arrives from the database with the rest of the row. It is never
+ * inferred from the email address, and never read back from anything the
+ * browser could have written.
+ */
+function toProfile(row: ProfileFields): Profile {
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    email: row.email,
+    role: row.role === 'admin' ? 'admin' : 'user',
+    disabledAt: row.disabled_at,
+    createdAt: row.created_at,
+  };
+}
 
 /**
  * Owns the Supabase session and the matching profile row. Everything below it
@@ -70,19 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const { data } = await supabase
         .from('profiles')
-        .select('id, display_name, email, created_at')
+        .select('id, display_name, email, role, disabled_at, created_at')
         .eq('id', userId)
         .maybeSingle();
 
       if (cancelled) return;
 
       if (data) {
-        setProfile({
-          id: data.id,
-          displayName: data.display_name,
-          email: data.email,
-          createdAt: data.created_at,
-        });
+        setProfile(toProfile(data));
         return;
       }
 
@@ -93,16 +110,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: created } = await supabase
         .from('profiles')
         .insert({ id: userId, display_name: fallback.slice(0, MAX_DISPLAY_NAME), email })
-        .select('id, display_name, email, created_at')
+        .select('id, display_name, email, role, disabled_at, created_at')
         .maybeSingle();
 
       if (cancelled || !created) return;
-      setProfile({
-        id: created.id,
-        displayName: created.display_name,
-        email: created.email,
-        createdAt: created.created_at,
-      });
+      setProfile(toProfile(created));
     })();
 
     return () => {
@@ -177,6 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       recovering,
       userId,
+      isAdmin: profile?.role === 'admin' && !profile.disabledAt,
+      isDisabled: Boolean(profile?.disabledAt),
       signUp,
       signIn,
       signOut,

@@ -1,4 +1,4 @@
-import { BarChart3, CheckSquare, Timer, Trophy } from 'lucide-react';
+import { BarChart3, CheckSquare, ShieldCheck, Timer, Trophy } from 'lucide-react';
 import { hashFor, type Section } from '../hooks/useRoute';
 
 interface AppNavProps {
@@ -8,6 +8,11 @@ interface AppNavProps {
   runningLabel?: string;
   /** Hidden in local-only mode, where there is nobody to rank against. */
   showLeaderboard?: boolean;
+  /**
+   * Shown only to administrators — as a convenience, not as a control. The
+   * `/admin` route checks the role itself, and the database checks it again.
+   */
+  showAdmin?: boolean;
 }
 
 const ITEMS: { section: Section; label: string; icon: typeof CheckSquare }[] = [
@@ -15,14 +20,25 @@ const ITEMS: { section: Section; label: string; icon: typeof CheckSquare }[] = [
   { section: 'time', label: 'Time Tracker', icon: Timer },
   { section: 'reports', label: 'Reports', icon: BarChart3 },
   { section: 'leaderboard', label: 'Leaderboard', icon: Trophy },
+  { section: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
 
 /**
  * Primary section navigation. Real anchors so the hash routes are linkable and
  * middle-clickable, with the click intercepted only to keep state in step.
  */
-export function AppNav({ section, onNavigate, runningLabel, showLeaderboard }: AppNavProps) {
-  const items = showLeaderboard ? ITEMS : ITEMS.filter((item) => item.section !== 'leaderboard');
+export function AppNav({
+  section,
+  onNavigate,
+  runningLabel,
+  showLeaderboard,
+  showAdmin,
+}: AppNavProps) {
+  const items = ITEMS.filter(
+    (item) =>
+      (item.section !== 'leaderboard' || showLeaderboard) &&
+      (item.section !== 'admin' || showAdmin),
+  );
 
   return (
     <nav aria-label="Sections" className="flex items-center gap-1">

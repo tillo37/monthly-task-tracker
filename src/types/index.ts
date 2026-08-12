@@ -104,10 +104,20 @@ export interface ActiveTimer {
 
 export type Theme = 'light' | 'dark' | 'system';
 
+export type { UserRole } from './database';
+
 /** The signed-in user as the rest of the app sees them. */
 export interface Profile {
   id: string;
   displayName: string;
   email: string;
+  /**
+   * Read back from the database, never decided here. The Admin Panel uses it to
+   * choose what to render; the database uses its own copy to decide what to
+   * answer, and that second check is the one that matters.
+   */
+  role: import('./database').UserRole;
+  /** Set while an administrator has locked the account out. */
+  disabledAt: string | null;
   createdAt: string;
 }

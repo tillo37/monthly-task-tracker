@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { BarChart3, CheckSquare, Clock, Trophy } from 'lucide-react';
 import {
   useAuth,
@@ -7,6 +7,7 @@ import {
   validatePassword,
 } from '../auth/context';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { getSupabase, isCloudConfigured } from '../lib/supabase';
 import type { Theme } from '../types';
 
 type Mode = 'signIn' | 'signUp' | 'forgot';
@@ -40,6 +41,23 @@ export function AuthView({ theme, onCycleTheme }: { theme: Theme; onCycleTheme: 
   const [formError, setFormError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  // Whether sign-up is open. The database is what actually enforces it — this
+  // only saves the visitor from filling in a form that would be refused.
+  const [registrationOpen, setRegistrationOpen] = useState(true);
+
+  useEffect(() => {
+    if (!isCloudConfigured) return;
+    let cancelled = false;
+    void getSupabase()
+      .rpc('registration_enabled')
+      .then(({ data, error }) => {
+        if (cancelled || error) return;
+        setRegistrationOpen(data !== false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const switchMode = useCallback((next: Mode) => {
     setMode(next);
@@ -150,6 +168,15 @@ export function AuthView({ theme, onCycleTheme }: { theme: Theme; onCycleTheme: 
               : 'Your data is tied to your account and visible only to you.'}
           </p>
 
+          {mode === 'signUp' && !registrationOpen && (
+            <p
+              role="status"
+              className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300"
+            >
+              New registrations are closed at the moment. If you already have an account, sign in.
+            </p>
+          )}
+
           <form className="mt-5 space-y-4" onSubmit={submit} noValidate>
             {mode === 'signUp' && (
               <div>
@@ -232,7 +259,11 @@ export function AuthView({ theme, onCycleTheme }: { theme: Theme; onCycleTheme: 
               </p>
             )}
 
-            <button type="submit" className="btn btn-md btn-primary w-full" disabled={busy}>
+            <button
+              type="submit"
+              className="btn btn-md btn-primary w-full"
+              disabled={busy || (mode === 'signUp' && !registrationOpen)}
+            >
               {busy
                 ? 'Working…'
                 : mode === 'signIn'

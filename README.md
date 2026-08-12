@@ -90,6 +90,14 @@ _Run the app with `npm run dev` and drop screenshots into `docs/` to fill this s
   from when it started.
 - **Consented migration** — data left over from the local-only version is offered for import after
   sign-in and uploaded only if you say yes. The local copy is never deleted.
+- **Admin panel** — a `/admin` route for administrators only, with system statistics, searchable
+  user management, per-user aggregates, leaderboard inspection, a registration switch and an audit
+  log. Roles live in the database; the navigation item is a convenience, not the control.
+- **Roles that cannot be self-granted** — `profiles.role` is `user` by default, writable only
+  through an audited `SECURITY DEFINER` function, and protected by column privileges *and* a
+  trigger. There is no path from a browser to becoming an administrator.
+- **Safeguards on the last administrator** — the only remaining admin cannot be demoted, disabled or
+  deleted, and no administrator can delete or disable their own account from the panel.
 - **Light / dark / system theme**, responsive layout and keyboard-accessible controls.
 
 ## Technology
@@ -202,15 +210,18 @@ saved data, and the same fixture is used by the tests.
 
 ```text
 src/
-  views/            one component per section: Tasks, Time Tracker, Reports
+  views/            one component per section: Tasks, Time Tracker, Reports,
+                    Leaderboard, Admin, and the signed-out screens
   components/       UI components (tracker table, dialogs, summary, controls)
+    admin/          overview, user table, user detail, leaderboard, settings,
+                    audit log
     time/           timer panel, session list, manual entry, time charts
     ui/             generic building blocks (modal, confirm, progress ring/bar,
                     stat tile)
   auth/             AuthProvider (session + profile) and the auth contract
   data/             the persistence edge: TrackerOp, the local and Supabase
                     repositories, the timer store, the leaderboard source, the
-                    write queue and the local-data migration
+                    admin source, the write queue and the local-data migration
   hooks/            useTracker (all state + mutations), useActiveTimer,
                     useRoute, useTheme
   lib/              domain logic: dates, calculations, task operations, time
@@ -344,11 +355,13 @@ at 5 completions the result is `15 / 25 = 60%` — not the 75% a naive average w
 
 | Table              | Holds                                     | Key columns                                          |
 | ------------------ | ----------------------------------------- | ---------------------------------------------------- |
-| `profiles`         | display name and email, one row per user  | `id` → `auth.users`, `display_name`, `email`, `created_at` |
+| `profiles`         | display name, email and role, one per user | `id` → `auth.users`, `display_name`, `email`, `role`, `disabled_at`, `created_at` |
 | `tasks`            | task definitions, scoped to one month     | `user_id`, `month`, `name`, `target`, `color`, `icon` |
 | `task_completions` | one row per ticked day                    | `user_id`, `task_id`, `date`, unique on `(task_id, date)` |
 | `time_sessions`    | recorded intervals                        | `user_id`, `task_id`, `start_time`, `end_time`, generated `duration_seconds` |
 | `active_timers`    | the running timer, at most one per user   | `user_id` **primary key**, `task_id`, `start_time`, `month` |
+| `admin_audit_log`  | what administrators did                   | `admin_user_id`, `admin_email`, `action`, `target_user_id`, `target_email`, `metadata`, `created_at` |
+| `app_settings`     | system settings, one row per key          | `key` **primary key**, `value` (jsonb), `updated_by` |
 
 Tasks carry a `month` because the app has always treated each month's task list as its own set of
 definitions, copied forward rather than shared — the schema mirrors the model rather than fighting
@@ -384,8 +397,130 @@ Ownership is enforced by the database, not by the interface:
   key must never appear in a `VITE_` variable, in the repository, or in Cloudflare's build
   environment for this project.
 
+### Administration
+
+The role system follows the same rule as everything else: the database decides.
+
+- **The role is a column, not a claim.** `profiles.role` is `user` by default and constrained to
+  `user` or `admin`. It is never derived from an email address, a `VITE_` variable, `localStorage`
+  or any client-side check.
+- **Nobody can write it through the API.** `authenticated` holds `UPDATE (display_name)` on
+  `profiles` and nothing more, so a crafted `PATCH` that sets `role` is refused before a policy even
+  runs. A trigger refuses a change to `role`, `disabled_at` or `email` a second time unless the
+  statement is inside one of the admin functions.
+- **`is_admin()` answers only about the caller.** It is `SECURITY DEFINER` so it reads `profiles`
+  without going back through that table's policies — which is what would otherwise make every
+  policy calling it recursive. There is deliberately no `is_admin(uuid)`: a normal user has no
+  business asking whether somebody else is an administrator.
+- **Every admin function starts with `require_admin()`**, which raises rather than returns, so a
+  privileged function cannot forget to check. Calling one as a normal user with the same anon key
+  from a console returns `administrator privileges required`, not a row.
+- **Admin read access is explicit RLS**, `SELECT` only, on `profiles`, `tasks`, `task_completions`,
+  `time_sessions` and `active_timers`. Administrators inspect accounts; they do not edit somebody's
+  habits. The write paths that exist — rename, role, disable, delete — are audited functions.
+- **The audit log is append-only.** `authenticated` holds `SELECT` and nothing else, and the only
+  `INSERT` path is a `SECURITY DEFINER` function. Not even an administrator can edit or delete an
+  entry, including their own. Normal users read nothing from it at all. It never stores passwords,
+  tokens or any authentication secret.
+- **Disabling is enforced, not displayed.** A restrictive policy on each private table locks a
+  disabled account out of its own rows immediately, on the token it already holds; GoTrue's ban and
+  the deletion of its refresh sessions stop it signing in again.
+- **Registration is enforced at the point of creation.** With the setting off, a trigger on
+  `auth.users` rejects the insert, however the sign-up was attempted. The form's notice is a
+  courtesy on top of that.
+- **The last administrator is protected.** Demoting, disabling or deleting them is refused, under an
+  advisory lock so two administrators demoting each other at the same moment cannot both slip
+  through. An administrator can never delete or disable their own account from the panel.
+
 The [integration suite](#testing) checks these claims against a real Postgres rather than trusting
 them.
+
+## The admin panel
+
+`#/admin`, visible in the navigation only to administrators and reachable only by one. It keeps the
+existing dark dashboard style; nothing in Tasks, Time Tracker, Reports or the public Leaderboard was
+redesigned.
+
+| Tab             | Shows                                                                          |
+| --------------- | ------------------------------------------------------------------------------ |
+| Overview        | users, active today, active this month, tracked time, sessions, completions, and a short recent-activity feed |
+| Users           | a searchable table — display name, email, role, created, last active, status — and a per-user detail panel |
+| User Activity   | the same table, read-only, for support and moderation                          |
+| Leaderboard     | this month and last month, by time or by completions                           |
+| Settings        | the registration switch                                                        |
+| Audit Log       | who did what, when, and to whom                                                |
+
+Three gates, not one:
+
+1. **Navigation** hides the item from non-administrators. This is presentation.
+2. **The route** renders a *Forbidden* state for a signed-in non-administrator, and the sign-in
+   screen for a signed-out visitor — `#/admin` is parsed like any other route, because a route the
+   parser refused to name would only be obscurity.
+3. **The database** refuses the data. Every admin function begins with `require_admin()` and every
+   admin policy with `is_admin()`. Editing either of the first two gates out of the bundle changes
+   what is drawn and nothing else.
+
+Aggregation happens in Postgres. `admin_stats()` returns nine numbers in one round trip, and
+`admin_list_users()` returns one row per user with their totals already summed — the browser never
+downloads anybody's sessions in order to add them up. Indexes on `(user_id, end_time)` and
+`(user_id, created_at)`, plus a partial index on administrators, keep the per-user figures to index
+probes.
+
+### What administrators can and cannot see
+
+Inspection is read-only and aggregate. The user detail panel shows tracked time, session count,
+completions, task count, account creation and last activity, plus a month-by-month breakdown — and
+labels itself as an administrator-only view. It does not show task names, individual completions or
+individual sessions, and the overview feed says *that* something happened without saying what it was
+about. There is no impersonation, and the only user data an administrator can change is a display
+name — which is written to the audit log.
+
+The public leaderboard is untouched: rank, display name, aggregate time, session count and
+completion count, for every viewer, with no emails and no individual sessions.
+
+### Making the first administrator
+
+There is no way to become an administrator from the browser, which leaves the first one to be
+created from a trusted connection. The migration promotes **the oldest existing account** if the
+deployment has no administrator at all — so an existing production database gets its owner promoted,
+and a fresh one is left alone. On a database with no accounts yet (including a brand-new project),
+sign up first, then promote yourself from the Supabase SQL editor:
+
+```sql
+select public.bootstrap_admin('owner@example.com');
+```
+
+`bootstrap_admin` is revoked from `anon` and `authenticated`; only the service role and the SQL
+editor can call it. The promotion is written to the audit log with `via: bootstrap_admin`. After
+that, administrators are made and unmade from the panel itself.
+
+### Registration control
+
+Off means off at the database: a trigger on `auth.users` rejects the insert, so blocked sign-ups
+fail however they are attempted — including through the API with the anon key. Existing users sign
+in as normal. One caveat worth knowing: the trigger applies to *any* insert into `auth.users`, so
+while registration is disabled an administrator cannot create an account through the Supabase
+dashboard either. Turn it back on first.
+
+### Disabling versus deleting
+
+**Disabling** keeps the data and takes away the access: restrictive policies lock the account out of
+its own rows on the token it already holds, GoTrue's ban stops it signing in, and its refresh
+sessions are deleted. The user sees an explanatory screen rather than an app that silently returns
+nothing. It is reversible.
+
+**Deleting** removes the row from `auth.users`, and the foreign keys take the profile, tasks,
+completions, sessions and running timer with it — nothing is left orphaned. Audit entries survive:
+`target_user_id` becomes null, and the identity is copied into the entry when it is written, so the
+history still reads correctly. It is not reversible, and the panel asks first:
+
+```text
+Delete account?
+
+This will permanently delete the user's tasks, completion history, and time tracking data.
+
+[Cancel]  [Delete]
+```
 
 ## The leaderboard
 
@@ -516,7 +651,9 @@ periods (Monday-first weeks from every weekday, month and year boundaries, stepp
 report engine (range filtering, midnight splitting, zero-filled days, seven-day averages, busiest-day
 ties, per-period completion), the row-to-document translation and its legacy-id rewriting, the write
 queue (ordering, holding a failed write, retrying, draining on reconnect), leaderboard periods, the
-leaderboard table, and end-to-end passes over the UI (create, mark, unmark, edit, delete, reset,
+leaderboard table, access to `#/admin` (a signed-out visitor gets the sign-in screen, a normal user
+gets a forbidden state and issues no admin query, an administrator gets the panel and the nav item),
+and end-to-end passes over the UI (create, mark, unmark, edit, delete, reset,
 navigate months, persist across a reload; and navigate sections, run the timer, add and delete
 sessions, read the report).
 
@@ -532,7 +669,7 @@ npm run supabase:start      # needs Docker
 npm run test:integration
 ```
 
-Fifty tests covering:
+Seventy-seven tests covering:
 
 - **Isolation** — user A cannot read, update or delete user B's tasks, completions, sessions or
   running timer, in both directions; cannot insert a row on someone else's behalf; and cannot attach
@@ -550,6 +687,16 @@ Fifty tests covering:
 - **Repository and timer** — the full round trip through the real schema, cascade on delete, import
   replacing only the importing user's data, legacy ids rewritten, one timer per user under
   concurrent starts, and the start instant stamped by the database rather than the caller.
+- **Administration** — a normal user is refused every admin function, reads nothing from the audit
+  log or the settings table, cannot promote themselves or anybody else (through the table or through
+  the functions), and cannot insert, update or delete an audit entry; a signed-out visitor cannot
+  call the functions at all; an administrator reads correct statistics, searches users, reads
+  per-user aggregates without their task names, promotes and demotes — with the demotion taking
+  effect on the existing token — and cannot rewrite the log either; the last administrator cannot be
+  demoted or deleted; disabling locks a user out of their own rows immediately and enabling gives
+  them back; deleting leaves no orphaned rows but keeps the audit entry; registration off blocks new
+  sign-ups while existing users still sign in; and the public leaderboard still exposes nothing but
+  rank, display name and aggregates.
 
 ## GitHub
 
