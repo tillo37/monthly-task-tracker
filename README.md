@@ -108,7 +108,7 @@ _Run the app with `npm run dev` and drop screenshots into `docs/` to fill this s
 | Build          | Vite                                               |
 | Styling        | Tailwind CSS v4                                    |
 | Icons          | lucide-react                                       |
-| Hosting        | Cloudflare Workers (static assets)                 |
+| Hosting        | Cloudflare Workers (static assets), Wrangler 4.121.0 |
 | Backend        | Supabase — Postgres, Auth and Realtime             |
 | Authorisation  | Postgres Row Level Security                        |
 | Tests          | Vitest + Testing Library, plus integration against a real Supabase stack |
@@ -593,11 +593,28 @@ The build is a static bundle, so it needs no adapter. `wrangler.jsonc` pins the 
 assets directory (`./dist`), so the deployment configuration lives in the repository rather than only
 in the dashboard.
 
-| Setting                | Value          |
-| ---------------------- | -------------- |
-| Build command          | `npm run build` |
-| Build output directory | `dist`         |
-| Node version           | 20 or newer    |
+| Setting                | Value                        |
+| ---------------------- | ---------------------------- |
+| Build command          | `npm run build`              |
+| Deploy command         | `npm exec -- wrangler deploy` |
+| Build output directory | `dist`                       |
+| Node version           | 20 or newer                  |
+
+Wrangler is a pinned devDependency (exact, no caret), so the deploy runs the version in the
+lockfile. Do **not** use a bare `npx wrangler deploy` in the deploy command: that resolves
+`wrangler@latest` at deploy time, and an upstream release whose own dependency is unpublished then
+breaks the deploy with an error that has nothing to do with this project. That is exactly what
+happened with `wrangler@4.122.0`, which depends on `miniflare@5.20260811.0-alpha` — a version that
+404s on the registry:
+
+```text
+npm error code ETARGET
+No matching version found for miniflare@5.20260811.0-alpha
+```
+
+Note the `--`. `npm exec wrangler deploy` happens to work for a bare subcommand, but npm consumes
+any flag that follows, so `npm exec wrangler deploy --dry-run` silently attempts a *real* deploy.
+`npm exec -- wrangler deploy` and `npm run deploy` both pass arguments through intact.
 
 ### The two build variables are not optional
 

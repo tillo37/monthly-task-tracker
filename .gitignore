@@ -38,3 +38,6 @@ monthly-task-tracker-*.json
 # Local Supabase working files
 supabase/.branches
 supabase/.temp
+
+# Wrangler local state (build cache, dev server data).
+.wrangler/
