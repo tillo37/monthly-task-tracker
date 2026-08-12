@@ -604,8 +604,15 @@ VITE_SUPABASE_URL
 VITE_SUPABASE_ANON_KEY
 ```
 
-They are read at build time, so changing one requires a redeploy. `public/_redirects` sends every
-path to `index.html` so a refresh or a direct link never 404s.
+They are read at build time, so changing one requires a redeploy.
+
+There is deliberately no `_redirects` file. Routing lives entirely in the URL hash (`#/tasks`,
+`#/admin/users`), which the browser never sends to the server, so the only paths Pages is ever asked
+for are `/`, `/assets/*` and `/favicon.svg` — all of which it serves directly. The usual SPA
+fallback, `/*  /index.html  200`, would add nothing here, and Cloudflare rejects it anyway
+(`Invalid _redirects configuration: Line 3: Infinite loop detected`) because the destination matches
+the source pattern. A refresh or a direct link still works: `https://example.pages.dev/#/admin`
+requests `/`, and the hash is resolved in the browser.
 
 Finally, in the Supabase dashboard under **Authentication → URL Configuration**, set the site URL to
 your Pages domain and add it to the redirect allow-list — otherwise confirmation and password-reset
