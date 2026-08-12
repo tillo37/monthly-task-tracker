@@ -1,0 +1,28 @@
+{
+  // Cloudflare Workers deployment for the static bundle.
+  //
+  // The name matches the existing Worker, so a deploy from here lands on
+  // https://monthly-task-tracker.<account>.workers.dev rather than creating a
+  // second one.
+  //
+  // IMPORTANT — this file cannot carry the Supabase credentials. Vite inlines
+  // `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` at *build* time, so they
+  // have to exist as build variables in the Cloudflare dashboard (Settings →
+  // Build → Variables and secrets). A `vars` block here would be a *runtime*
+  // Worker binding, which a static bundle never reads.
+  //
+  // Building without them is not an error: the app deliberately falls back to
+  // the original local-only tracker, with no accounts, no leaderboard and no
+  // admin panel — and the auth code is tree-shaken out of the bundle entirely,
+  // because `isCloudConfigured` folds to a constant `false`. A deployment that
+  // is missing those two variables therefore looks exactly like an old build.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "monthly-task-tracker",
+  "compatibility_date": "2026-08-12",
+  "assets": {
+    "directory": "./dist"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

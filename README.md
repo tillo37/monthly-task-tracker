@@ -108,7 +108,7 @@ _Run the app with `npm run dev` and drop screenshots into `docs/` to fill this s
 | Build          | Vite                                               |
 | Styling        | Tailwind CSS v4                                    |
 | Icons          | lucide-react                                       |
-| Hosting        | Cloudflare Pages (static)                          |
+| Hosting        | Cloudflare Workers (static assets)                 |
 | Backend        | Supabase — Postgres, Auth and Realtime             |
 | Authorisation  | Postgres Row Level Security                        |
 | Tests          | Vitest + Testing Library, plus integration against a real Supabase stack |
@@ -187,7 +187,7 @@ npm run test:integration    # RLS, leaderboard and repository tests against it
 
 To have a local build permanently available at http://localhost:4173 without starting anything by
 hand, install the systemd user service in [`deploy/`](deploy/README.md). For anything shared, deploy
-to [Cloudflare Pages](#deployment-to-cloudflare-pages) instead:
+to [Cloudflare](#deployment-to-cloudflare) instead:
 
 ```bash
 npm run build
@@ -587,9 +587,11 @@ you can still export it from the Data menu.
 Legacy records used a non-UUID id format that Postgres cannot store; those ids are rewritten during
 the import, consistently across tasks, completions and sessions, so nothing loses its links.
 
-## Deployment to Cloudflare Pages
+## Deployment to Cloudflare
 
-The build is a static bundle, so Pages needs no adapter.
+The build is a static bundle, so it needs no adapter. `wrangler.jsonc` pins the Worker name and the
+assets directory (`./dist`), so the deployment configuration lives in the repository rather than only
+in the dashboard.
 
 | Setting                | Value          |
 | ---------------------- | -------------- |
@@ -597,21 +599,40 @@ The build is a static bundle, so Pages needs no adapter.
 | Build output directory | `dist`         |
 | Node version           | 20 or newer    |
 
-Add the two variables under **Settings → Environment variables**, for both Production and Preview:
+### The two build variables are not optional
+
+Add both under **Settings → Build → Variables and secrets**, for Production *and* Preview:
 
 ```text
-VITE_SUPABASE_URL
-VITE_SUPABASE_ANON_KEY
+VITE_SUPABASE_URL       https://<project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY  <anon / publishable key>
 ```
 
-They are read at build time, so changing one requires a redeploy.
+They are read at **build** time — Vite inlines them into the bundle — so changing one requires a
+redeploy, and a Worker `vars` binding cannot supply them.
+
+**Leaving them unset does not fail the build; it silently ships a different application.**
+`isCloudConfigured` folds to a constant `false`, and the bundler then removes the sign-in screen, the
+admin panel and the Supabase client as unreachable code. The result is the original local-only
+tracker — no login, no leaderboard, no admin — which is indistinguishable from an old deployment.
+The giveaway is bundle size: roughly 350 kB without credentials against roughly 574 kB with them.
+
+If a deploy ever looks like "the old version", check this first:
+
+```bash
+# should print the project URL; silence means the variables were missing
+curl -s https://<your-worker>.workers.dev/ \
+  | grep -o '/assets/index-[^"]*\.js' \
+  | xargs -I{} curl -s https://<your-worker>.workers.dev{} \
+  | grep -o 'https://[a-z0-9]*\.supabase\.co' | head -1
+```
 
 There is deliberately no `_redirects` file. Routing lives entirely in the URL hash (`#/tasks`,
 `#/admin/users`), which the browser never sends to the server, so the only paths Pages is ever asked
-for are `/`, `/assets/*` and `/favicon.svg` — all of which it serves directly. The usual SPA
+for are `/`, `/assets/*` and `/favicon.svg` — all of which the Worker serves directly. The usual SPA
 fallback, `/*  /index.html  200`, would add nothing here, and Cloudflare rejects it anyway
 (`Invalid _redirects configuration: Line 3: Infinite loop detected`) because the destination matches
-the source pattern. A refresh or a direct link still works: `https://example.pages.dev/#/admin`
+the source pattern. A refresh or a direct link still works: `https://example.workers.dev/#/admin`
 requests `/`, and the hash is resolved in the browser.
 
 Finally, in the Supabase dashboard under **Authentication → URL Configuration**, set the site URL to
